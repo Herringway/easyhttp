@@ -56,11 +56,13 @@ class HTTPFactory {
 	public string CookieJar;
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
+	private string certBundlePath;
 	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) {
 		if (inURL.Hostname !in activeHTTP) {
 			Log("Spawning new HTTP instance for "~inURL.toString());
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
+			activeHTTP[inURL.Hostname].Certificates = certBundlePath;
 		}
 		return activeHTTP[inURL.Hostname];
 	}
@@ -74,6 +76,7 @@ class HTTP {
 	private CurlHTTP HTTPClient;
 	private string[string] _headers;
 	private string _cookiepath;
+	private bool peerVerification = false;
 	this(in string inURL, in string[string] reqHeaders = null) @trusted {
 		this(new URL(inURL), reqHeaders);
 	}
@@ -115,6 +118,15 @@ class HTTP {
 	}
 	@property string CookieJar() @safe {
 		return _cookiepath;
+	}
+	@property string Certificates(string path) {
+		import std.exception : enforce;
+		import std.file : exists;
+		enforce(path.exists(), "Certificate bundle file not found");
+		HTTPClient.caInfo = path;
+		HTTPClient.verifyPeer = true;
+		peerVerification = true;
+		return path;
 	}
 	Response get(in URL url) {
 		return get(url.Path, url.Params);
@@ -203,6 +215,7 @@ class HTTP {
 		private string MD5hash;
 		private string SHA1hash;
 		private OAuthParams oAuthParams;
+		bool ignoreHostCert = false;
 		ushort statusCode;
 		//@disable this();
 		invariant() {
@@ -210,6 +223,8 @@ class HTTP {
 			assert((url.Protocol != URL.Proto.Unknown) && (url.Protocol != URL.Proto.None) && (url.Protocol != URL.Proto.Same), "No protocol specified in URL");
 		}
 		private this(CurlHTTP inClient, URL initial) {
+			if (!this.outer.peerVerification)
+				Log("Peer verification disabled!");
 			client = inClient;
 			url = initial;
 		}
@@ -301,6 +316,10 @@ class HTTP {
 			SHA1hash = hash.toUpper();
 			return this;
 		}
+		Response IgnoreHostCertificate(bool val = true) {
+			ignoreHostCert = val;
+			return this;
+		}
 		string md5() {
 			import std.digest.md;
 			if (!fetched)
@@ -377,6 +396,7 @@ class HTTP {
 				    } else
 						_headers[key] = value.idup;
 			};
+			client.verifyHost(!ignoreHostCert);
 			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = line.code; };
 			//assert((client.method == CurlHTTP.Method.post) && (onSend is null), "POST Request missing onSend callback");
 			uint redirectCount = 0;
