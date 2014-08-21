@@ -16,6 +16,14 @@ void Log(string file = __FILE__, int line = __LINE__)(string msg) {
 		debug writefln(msg);
 	}
 }
+void LogImportant(string file = __FILE__, int line = __LINE__)(string msg) {
+	version(Have_loggins) {
+		import loggins;
+		LogDiagnostic!(LoggingFlags.NoCut | LoggingFlags.NewLine, file, line)("%s", msg);
+	} else {
+		debug writefln(msg);
+	}
+}
 string fixPath(in string inPath) in {
 	assert(inPath != "", "No path");
 } body {
@@ -48,6 +56,7 @@ unittest {
 	}
 }
 //Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.102 Safari/537.36
+public string[] ExtraCurlCertSearchPaths = [];
 HTTPFactory httpfactory;
 static this() {
 	httpfactory = new HTTPFactory;
@@ -57,12 +66,47 @@ class HTTPFactory {
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
 	private string certBundlePath;
+	private bool useCertBundle;
+	private string certPath;
+	private bool useCertPath;
+	this() {
+		import std.file : exists;
+		version(Windows) {
+			if ("./curl-ca-bundle.crt".exists) {
+				certBundlePath = "./curl-ca-bundle.crt";
+				useCertBundle = true;
+				useCertPath = false;
+			}
+		}
+		version(Linux) {
+			static string[] caCertSearchPaths = ["/usr/share/ca-certificates"];
+			foreach (path; caCertSearchPaths)
+				if (path.exists) {
+					certPath = path;
+					useCertBundle = false;
+					useCertPath = true;
+				}
+		}
+		version(FreeBSD) {
+			static string[] caCertSearchPaths = ["/usr/local/share/certs"];
+			foreach (path; caCertSearchPaths)
+				if (path.exists) {
+					certPath = path;
+					useCertBundle = false;
+					useCertPath = true;
+				}	
+		}
+	}
 	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) {
 		if (inURL.Hostname !in activeHTTP) {
 			Log("Spawning new HTTP instance for "~inURL.toString());
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
-			activeHTTP[inURL.Hostname].Certificates = certBundlePath;
+			//assert(!useCertPath || !useCertBundle, "Using cert bundles and paths together is unsupported");
+			if (useCertBundle)
+				activeHTTP[inURL.Hostname].Certificates(certBundlePath, true);
+			else if (useCertPath)
+				activeHTTP[inURL.Hostname].Certificates(certPath, false);
 		}
 		return activeHTTP[inURL.Hostname];
 	}
@@ -119,7 +163,7 @@ class HTTP {
 	@property string CookieJar() @safe {
 		return _cookiepath;
 	}
-	@property string Certificates(string path) {
+	string Certificates(string path, bool isBundle = false) {
 		import std.exception : enforce;
 		import std.file : exists;
 		enforce(path.exists(), "Certificate bundle file not found");
@@ -139,7 +183,7 @@ class HTTP {
 	}
 	Response get(in string path, in string[string] params = null) @trusted {
 		import std.string : format;
-		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params));
+		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
@@ -150,7 +194,7 @@ class HTTP {
 		import std.string : format, representation;
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
-		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params));
+		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
 		output.method = CurlHTTP.Method.post;
 		//output.url = new URL(url.Protocol, url.Hostname, path, params);
 		output.onReceive = null;
@@ -216,15 +260,19 @@ class HTTP {
 		private string SHA1hash;
 		private OAuthParams oAuthParams;
 		bool ignoreHostCert = false;
+		bool verifyPeer = true;
 		ushort statusCode;
 		//@disable this();
 		invariant() {
 			assert(url !is null, "Associated URL missing");
 			assert((url.Protocol != URL.Proto.Unknown) && (url.Protocol != URL.Proto.None) && (url.Protocol != URL.Proto.Same), "No protocol specified in URL");
 		}
-		private this(CurlHTTP inClient, URL initial) {
-			if (!this.outer.peerVerification)
-				Log("Peer verification disabled!");
+		private this(CurlHTTP inClient, URL initial, bool peerVerification) {
+			if (!peerVerification)
+				LogImportant("Peer verification disabled!");
+			else
+				Log("Peer verification enabled.");
+			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
 		}
@@ -320,6 +368,10 @@ class HTTP {
 			ignoreHostCert = val;
 			return this;
 		}
+		Response DisablePeerVerification(bool val = true) {
+			verifyPeer = val;
+			return this;
+		}
 		string md5() {
 			import std.digest.md;
 			if (!fetched)
@@ -396,6 +448,7 @@ class HTTP {
 				    } else
 						_headers[key] = value.idup;
 			};
+			client.verifyPeer(!verifyPeer);
 			client.verifyHost(!ignoreHostCert);
 			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = line.code; };
 			//assert((client.method == CurlHTTP.Method.post) && (onSend is null), "POST Request missing onSend callback");
