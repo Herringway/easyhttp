@@ -1,0 +1,12 @@
+{
+	"name": "curloo",
+	"description": "An object-oriented interface to libcurl.",
+	"copyright": "Copyright © 2014, Cameron",
+	"authors": ["Cameron \"Herringway\" Ross"],
+	"dependencies": {
+		"libcurl": "~master",
+		"vibejson": "~master",
+		"arsd:dom": "~master",
+		"loggins": {"version": "~master", "optional": true }
+	}
+}

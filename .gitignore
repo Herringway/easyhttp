@@ -1,0 +1,10 @@
+*.exe
+*.html
+*.db
+settings.json
+*.dll
+cookiejar.txt
+.dub
+*.lib
+*.def
+*.log
