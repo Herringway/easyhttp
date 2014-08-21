@@ -248,10 +248,12 @@ class HTTP {
 			assert((url.Protocol != URL.Proto.Unknown) && (url.Protocol != URL.Proto.None) && (url.Protocol != URL.Proto.Same), "No protocol specified in URL");
 		}
 		private this(CurlHTTP inClient, URL initial, bool peerVerification) {
-			if (!peerVerification)
-				LogImportant("Peer verification disabled!");
-			else
-				Log("Peer verification enabled.");
+			if (initial.Protocol == URL.Proto.HTTPS) {
+				if (!peerVerification)
+					LogImportant("Peer verification disabled!");
+				else
+					Log("Peer verification enabled.");
+			}
 			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
