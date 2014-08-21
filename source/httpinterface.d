@@ -65,49 +65,28 @@ class HTTPFactory {
 	public string CookieJar;
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
-	private string certBundlePath;
-	private bool useCertBundle;
 	private string certPath;
 	private bool useCertPath;
 	this() {
 		import std.file : exists;
-		version(Windows) {
-			if ("./curl-ca-bundle.crt".exists) {
-				certBundlePath = "./curl-ca-bundle.crt";
-				useCertBundle = true;
-				useCertPath = false;
+		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
+		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
+		version(Linux) caCertSearchPaths ~= ["/usr/share/ca-certificates"];
+		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs"];
+		foreach (path; caCertSearchPaths)
+			if (path.exists) {
+				certPath = path;
+				useCert = true;
+				break;
 			}
-		}
-		version(Linux) {
-			static string[] caCertSearchPaths = ["/usr/share/ca-certificates"];
-			foreach (path; caCertSearchPaths)
-				if (path.exists) {
-					certPath = path;
-					useCertBundle = false;
-					useCertPath = true;
-				}
-		}
-		version(FreeBSD) {
-			static string[] caCertSearchPaths = ["/usr/local/share/certs"];
-			foreach (path; caCertSearchPaths)
-				if (path.exists) {
-					certPath = path;
-					useCertBundle = false;
-					useCertPath = true;
-				}	
-		}
 	}
 	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) {
 		if (inURL.Hostname !in activeHTTP) {
 			Log("Spawning new HTTP instance for "~inURL.toString());
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
-			//assert(!useCertPath || !useCertBundle, "Using cert bundles and paths together is unsupported");
-			if (useCertBundle)
-				activeHTTP[inURL.Hostname].Certificates(certBundlePath, true);
-			else if (useCertPath)
-				activeHTTP[inURL.Hostname].Certificates(certPath, false);
-		}
+			if (useCert)
+				activeHTTP[inURL.Hostname].Certificates = certPath;
 		return activeHTTP[inURL.Hostname];
 	}
 }
@@ -163,10 +142,10 @@ class HTTP {
 	@property string CookieJar() @safe {
 		return _cookiepath;
 	}
-	string Certificates(string path, bool isBundle = false) {
+	string Certificates(string path) {
 		import std.exception : enforce;
 		import std.file : exists;
-		enforce(path.exists(), "Certificate bundle file not found");
+		enforce(path.exists(), "Certificate path not found");
 		HTTPClient.caInfo = path;
 		HTTPClient.verifyPeer = true;
 		peerVerification = true;
