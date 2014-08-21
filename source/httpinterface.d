@@ -66,7 +66,7 @@ class HTTPFactory {
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
 	private string certPath;
-	private bool useCertPath;
+	private bool useCert;
 	this() {
 		import std.file : exists;
 		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
@@ -87,6 +87,7 @@ class HTTPFactory {
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
 			if (useCert)
 				activeHTTP[inURL.Hostname].Certificates = certPath;
+		}
 		return activeHTTP[inURL.Hostname];
 	}
 }
