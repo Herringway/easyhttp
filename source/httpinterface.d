@@ -73,7 +73,7 @@ class HTTPFactory {
 		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
 		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
 		version(Linux) caCertSearchPaths ~= ["/usr/share/ca-certificates"];
-		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs"];
+		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs/ca-root-nss.crt"];
 		foreach (path; caCertSearchPaths)
 			if (path.exists) {
 				certPath = path;
