@@ -412,7 +412,6 @@ class HTTP {
 				client.handle.onSeek = null;
 			}
 			assert(maxTries > 0, "Max tries set to zero?");
-			Log("Beginning Response request");
 			client.contentLength = contentLength;
 			bool stopWriting = false;
 			if (onReceive is null)
@@ -469,7 +468,6 @@ class HTTP {
 						throw new HashException("MD5", md5, MD5hash);
 					if ((SHA1hash != "") && (sha1 != SHA1hash))
 						throw new HashException("SHA1", sha1, SHA1hash);
-					Log("Success!");
 					return;
 				} catch (CurlException e) {
 					lastException = e;
@@ -509,7 +507,6 @@ class URL {
 		import std.array : replace;
 		import std.algorithm : find;
 		import std.string : toLower, split, join;
-		Log("Creating URL from string: " ~ str);
 		//Get protocol
 		if (str.length >= 6) {
 			if (str[0..5].toLower() == "http:")
