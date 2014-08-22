@@ -1,6 +1,7 @@
 module httpinterface;
 
-public import json : Json;
+public import stdx.data.json : JSONValue;
+public deprecated alias Json = JSONValue;
 public import arsd.dom : Document, Element;
 
 private import std.stdio;
@@ -77,6 +78,7 @@ class HTTPFactory {
 			if (path.exists) {
 				certPath = path;
 				useCert = true;
+				Log("Found certs at "~path);
 				break;
 			}
 	}
@@ -378,14 +380,14 @@ class HTTP {
 				fetchContent(false);
 			return cast(string)_content;
 		}
-		@property Json json() {
+		@property JSONValue json() {
 			import std.string : lastIndexOf;
-			import json;
+			import stdx.data.json;
 			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
 			//if (a == -1)
 			//	a = content.length-1;
 			auto fixedContent = content[0..a+1]; //temporary hack
-			return parseJsonString(fixedContent);
+			return parseJSONValue(fixedContent);
 		}
 		@property Document dom() {
 			return new Document(content);
