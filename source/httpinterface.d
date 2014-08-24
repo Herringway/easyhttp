@@ -4,26 +4,21 @@ public import stdx.data.json : JSONValue;
 public deprecated alias Json = JSONValue;
 public import arsd.dom : Document, Element;
 
-private import std.stdio;
-
 version(Windows) int maxPath = 260;
 version(Posix) int maxPath = 255;
 public uint defaultMaxTries = 5;
-void Log(string file = __FILE__, int line = __LINE__)(string msg) {
-	version(Have_loggins) {
-		import loggins;
-		LogDebugV!(LoggingFlags.NoCut | LoggingFlags.NewLine, file, line)("%s", msg);
-	} else {
-		debug writefln(msg);
+version(Have_loggins) private import loggins;
+else {
+	void log(T...)(string fmt, T params) {
+		import std.stdio : writefln;
+		writefln(fmt, params);
 	}
-}
-void LogImportant(string file = __FILE__, int line = __LINE__)(string msg) {
-	version(Have_loggins) {
-		import loggins;
-		LogDiagnostic!(LoggingFlags.NoCut | LoggingFlags.NewLine, file, line)("%s", msg);
-	} else {
-		debug writefln(msg);
-	}
+	alias LogTrace = log;
+	alias LogDebugV = log;
+	alias LogDebug = log;
+	alias LogDiagnostic = log;
+	alias LogInfo = log;
+	alias LogError = log;
 }
 string fixPath(in string inPath) in {
 	assert(inPath != "", "No path");
@@ -39,7 +34,7 @@ string fixPath(in string inPath) in {
 		dest = (dest.dirName() ~ "/" ~ dest.baseName()[0..min($,(maxPath-10)-(dest.absolutePath().dirName() ~ "/" ~ dest.absolutePath().extension()).length)] ~ dest.extension()).buildNormalizedPath();
 	}
 	version(Windows) {
-		dest = "\\\\?\\" ~ dest.absolutePath().buildNormalizedPath();
+		dest = `\\?\` ~ dest.absolutePath().buildNormalizedPath();
 	}
 	return dest;
 }
@@ -78,13 +73,13 @@ class HTTPFactory {
 			if (path.exists) {
 				certPath = path;
 				useCert = true;
-				Log("Found certs at "~path);
+				LogDebugV("Found certs at %s", path);
 				break;
 			}
 	}
 	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) {
 		if (inURL.Hostname !in activeHTTP) {
-			Log("Spawning new HTTP instance for "~inURL.toString());
+			LogDebugV("Spawning new HTTP instance for %s", inURL.toString());
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
 			if (useCert)
@@ -164,16 +159,15 @@ class HTTP {
 		return post(url.Path, data, url.Params);
 	}
 	Response get(in string path, in string[string] params = null) @trusted {
-		import std.string : format;
 		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
-		Log(format("Spawning GET Response for host %s, path %s", output.url.Hostname, output.url.Path));
+		LogDebugV("Spawning GET Response for host %s, path %s", output.url.Hostname, output.url.Path);
 		return output;
 	}
 	Response post(in string path, in string inData, in string[string] params = null) @trusted {
-		import std.string : format, representation;
+		import std.string : representation;
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
@@ -189,7 +183,7 @@ class HTTP {
 	        size_t minLen = min(buf.length, remainingData.length);
 	        if (minLen == 0) return 0;
 	        buf[0..minLen] = remainingData[0..minLen];
-			Log(format("POSTING %s", remainingData[0..minLen]));
+			LogDebugV("POSTING %s", remainingData[0..minLen]);
 	        remainingData = remainingData[minLen..$];
 	        return minLen;
 	    };
@@ -206,20 +200,23 @@ class HTTP {
 	                return CurlSeek.cantseek;
 	        }
 	    };
-		Log(format("Spawning POST Response for host %s, path %s", output.url.Hostname, output.url.Path));
+		LogDebugV("Spawning POST Response for host %s, path %s", output.url.Hostname, output.url.Path);
 		return output;
 	}
 	Response post(in string path, in string[string] data, in string[string] params = null) @trusted {
+		import std.uri : encode;
+		import std.string : join;
 		string[] newdata;
 		foreach (key, val; data)
-			newdata ~= std.uri.encode(key) ~ "=" ~ std.uri.encode(val);
-		return post(path, std.string.join(newdata, "&"), params);
+			newdata ~= encode(key) ~ "=" ~ encode(val);
+		return post(path, newdata.join("&"), params);
 	}
 	override string toString() {
 		return url.toString();
 	}
 	class Response {
-		private import etc.c.curl : CurlSeekPos, CurlSeek;
+		import etc.c.curl : CurlSeekPos, CurlSeek;
+		import std.digest.sha : isDigest;
 		private struct OAuthParams {
 			string consumerToken;
 			string consumerSecret;
@@ -250,12 +247,8 @@ class HTTP {
 			assert((url.Protocol != URL.Proto.Unknown) && (url.Protocol != URL.Proto.None) && (url.Protocol != URL.Proto.Same), "No protocol specified in URL");
 		}
 		private this(CurlHTTP inClient, URL initial, bool peerVerification) {
-			if (initial.Protocol == URL.Proto.HTTPS) {
-				if (!peerVerification)
-					LogImportant("Peer verification disabled!");
-				else
-					Log("Peer verification enabled.");
-			}
+			if (initial.Protocol == URL.Proto.HTTPS)
+				LogDiagnostic(!peerVerification, "Peer verification disabled!");
 			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
@@ -270,7 +263,8 @@ class HTTP {
 		}
 		void saveTo(in string dest) {
 			version(Windows) {
-				auto outFile = new std.stream.File(dest.fixPath(), std.stream.FileMode.OutNew);
+				import std.stream : File, FileMode;
+				auto outFile = new File(dest.fixPath(), FileMode.OutNew);
 				scope(exit) 
 					if (outFile.isOpen) {
 						outFile.flush();
@@ -284,6 +278,7 @@ class HTTP {
 				else
 					outFile.write(_content);
 			} else {
+				import std.stdio : File;
 				auto outFile = File(dest.fixPath(), "wb");
 				scope(exit) 
 					if (outFile.isOpen) {
@@ -333,8 +328,8 @@ class HTTP {
 			string[] authString;
 			foreach (k,v; params)
 				authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
-			Log(authString.join(",\n"));
-			Log(format("Adding header: Authorization: %s", "OAuth " ~ authString.join(", ")));
+			LogDebugV("Oauth: %(%s,\n%)", authString);
+			LogDebugV("Adding header: Authorization: %s", "OAuth " ~ authString.join(", "));
 			client.addRequestHeader("Authorization", "OAuth " ~ authString.join(", "));
 			return this;
 		}
@@ -368,7 +363,7 @@ class HTTP {
 				return "";
 			return getHash!SHA1;
 		}
-		private string getHash(Hash)() if(std.digest.sha.isDigest!Hash) {
+		private string getHash(Hash)() if(isDigest!Hash) {
 			import std.digest.sha : toHexString, Order, LetterCase;
 			Hash hash;
 			hash.start();
@@ -403,7 +398,6 @@ class HTTP {
 		}
 		private void fetchContent(bool ignoreStatus = false) {
 			import std.digest.sha : toHexString;
-			import std.string : format;
 			import std.base64, std.conv : to;
 			scope (exit) {
 				client.onReceiveHeader = null;
@@ -441,7 +435,7 @@ class HTTP {
 				stopWriting = false;
 				client.url = url.toString();
 				client.method = method;
-				Log(format("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, this.outer.headers));
+				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, this.outer.headers);
 				try {
 					_content = [];
 					_headers = null;
@@ -471,9 +465,9 @@ class HTTP {
 					return;
 				} catch (CurlException e) {
 					lastException = e;
-					Log(e.toString());
+					LogDebugV("%s", e);
 				} catch (StatusException e) {
-					Log(format("HTTP %s error", statusCode));
+					LogDebugV("HTTP %s error", statusCode);
 					switch (statusCode) {
 						case 301, 302, 303, 307, 308:
 							if (redirectCount++ >= 5)
@@ -490,7 +484,7 @@ class HTTP {
 					lastException = e;
 				} catch (HTTPException e) {
 					lastException = e;
-					Log(e.toString());
+					LogDebugV("%s", e);
 				}
 			}
 			throw lastException;
@@ -507,6 +501,7 @@ class URL {
 		import std.array : replace;
 		import std.algorithm : find;
 		import std.string : toLower, split, join;
+		import std.uri : decode;
 		//Get protocol
 		if (str.length >= 6) {
 			if (str[0..5].toLower() == "http:")
@@ -546,9 +541,9 @@ class URL {
 				foreach (arg; existingParameters[1..$].split("&")) {
 					auto splitArg = arg.split("=");
 					if (splitArg.length > 1)
-						Params[std.uri.decode(splitArg[0].replace("+", " "))] = std.uri.decode(splitArg[1].replace("+", " "));
+						Params[decode(splitArg[0].replace("+", " "))] = decode(splitArg[1].replace("+", " "));
 					else
-						Params[std.uri.decode(arg.replace("+", " "))] = "";
+						Params[decode(arg.replace("+", " "))] = "";
 				}
 				Path = Path.split("?")[0];
 			}
