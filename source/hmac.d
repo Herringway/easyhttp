@@ -1,6 +1,6 @@
 module hmac;
 
-ubyte[] HMAC(Hash)(string inKey, string data) {
+ubyte[] HMAC(Hash)(string inKey, string data) @safe pure nothrow {
 	import std.string : representation;
 	ubyte[] key = inKey.representation.dup;
 	if (key.length > 64) {
@@ -27,9 +27,7 @@ ubyte[] HMAC(Hash)(string inKey, string data) {
 	return ohash.finish().dup;
 }
 
-
-
-unittest {
+unittest { //Wikipedia-provided example tests
 	import std.digest.md, std.digest.sha, std.string;
 	assert(HMAC!MD5("","").toHexString() == "74e6f7298a9c2d168935f58c001bad88".toUpper(), "HMAC-MD5 with empty strings");
 	assert(HMAC!SHA1("","").toHexString() == "fbdb1d1b18aa6c08324b7d64b71fb76370690e1d".toUpper(), "HMAC-SHA1 with empty strings");

@@ -51,19 +51,18 @@ unittest {
 		}
 	}
 }
-//Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.102 Safari/537.36
 public string[] ExtraCurlCertSearchPaths = [];
 HTTPFactory httpfactory;
 static this() {
 	httpfactory = new HTTPFactory;
 }
 class HTTPFactory {
+	import std.typecons : Nullable;
 	public string CookieJar;
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
-	private string certPath;
-	private bool useCert;
-	this() {
+	private Nullable!string certPath;
+	this() @safe {
 		import std.file : exists;
 		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
 		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
@@ -72,17 +71,16 @@ class HTTPFactory {
 		foreach (path; caCertSearchPaths)
 			if (path.exists) {
 				certPath = path;
-				useCert = true;
 				LogDebugV("Found certs at %s", path);
 				break;
 			}
 	}
-	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) {
+	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) @safe {
 		if (inURL.Hostname !in activeHTTP) {
 			LogDebugV("Spawning new HTTP instance for %s", inURL.toString());
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
-			if (useCert)
+			if (!certPath.isNull)
 				activeHTTP[inURL.Hostname].Certificates = certPath;
 		}
 		return activeHTTP[inURL.Hostname];
@@ -140,7 +138,7 @@ class HTTP {
 	@property string CookieJar() @safe {
 		return _cookiepath;
 	}
-	string Certificates(string path) {
+	string Certificates(string path) @trusted {
 		import std.exception : enforce;
 		import std.file : exists;
 		enforce(path.exists(), "Certificate path not found");
@@ -172,7 +170,6 @@ class HTTP {
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
 		output.method = CurlHTTP.Method.post;
-		//output.url = new URL(url.Protocol, url.Hostname, path, params);
 		output.onReceive = null;
 		output.maxTries = retryCount;
 		auto data = inData.representation().dup;
@@ -299,7 +296,7 @@ class HTTP {
 				fetchContent(true);
 			return statusCode;
 		}
-		Response guaranteeData(bool val = true) {
+		Response guaranteeData(bool val = true) @safe pure nothrow {
 			checkNoContent = val;
 			return this;
 		}
@@ -333,42 +330,42 @@ class HTTP {
 			client.addRequestHeader("Authorization", "OAuth " ~ authString.join(", "));
 			return this;
 		}
-		Response md5(string hash) {
+		Response md5(string hash) @safe pure {
 			import std.string : toUpper;
 			MD5hash = hash.toUpper();
 			return this;
 		}
-		Response sha1(string hash) {
+		Response sha1(string hash) @safe pure {
 			import std.string : toUpper;
 			SHA1hash = hash.toUpper();
 			return this;
 		}
-		Response IgnoreHostCertificate(bool val = true) {
+		Response IgnoreHostCertificate(bool val = true) @safe pure nothrow {
 			ignoreHostCert = val;
 			return this;
 		}
-		Response DisablePeerVerification(bool val = true) {
+		Response DisablePeerVerification(bool val = true) @safe pure nothrow {
 			verifyPeer = val;
 			return this;
 		}
-		string md5() {
+		string md5() pure nothrow {
 			import std.digest.md;
 			if (!fetched)
 				return "";
 			return getHash!MD5;
 		}
-		string sha1() {
+		string sha1() pure nothrow {
 			import std.digest.sha;
 			if (!fetched)
 				return "";
 			return getHash!SHA1;
 		}
-		private string getHash(Hash)() if(isDigest!Hash) {
+		private string getHash(Hash)() pure nothrow if(isDigest!Hash) {
 			import std.digest.sha : toHexString, Order, LetterCase;
 			Hash hash;
 			hash.start();
 			hash.put(_content);
-			return toHexString!(Order.increasing, LetterCase.upper)(hash.finish());
+			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 		}
 		@property string content() {
 			if (!fetched)
@@ -493,7 +490,7 @@ class HTTP {
 }
 class URL {
 	string[string] Params;
-	enum Proto { Unknown, HTTP, HTTPS, Same, None};
+	enum Proto { Unknown, HTTP, HTTPS, FTP, Same, None};
 	Proto Protocol;
 	string Hostname;
 	string Path;
@@ -551,23 +548,24 @@ class URL {
 		foreach (k,v; inParams)
 			Params[k] = v;
 	}
-	this(Proto protocol, string hostname, string path, string[string] inParams = null) @safe {
+	this(Proto protocol, string hostname, string path, string[string] inParams = null) @safe pure {
 		Protocol = protocol;
 		Hostname = hostname;
 		Path = path;
 		Params = inParams;
 	}
-	this(in Proto protocol, in string hostname, in string path, in string[string] inParams = null) {
+	this(in Proto protocol, in string hostname, in string path, in string[string] inParams = null) @safe pure {
 		Protocol = protocol;
 		Hostname = hostname;
 		Path = path;
-		Params = cast(typeof(Params))inParams.dup();
+		foreach (k, v; inParams)
+			Params[k] = v;
 	}
 	@property string Filename() nothrow const {
 		import std.string : split;
 		return Path.split("/")[$-1];
 	}
-	@property string paramString() nothrow const {
+	@property string paramString() nothrow const @trusted {
 		import std.uri;
 		import std.string : format, join;
 		if (Params == null) return "";
@@ -600,12 +598,10 @@ class URL {
 			return new URL(Protocol, Hostname, Path.split("/")[0..$-1].join("/"), Params);
 		return new URL(Protocol, Hostname, Path ~ "/" ~ urlB, Params);
 	}
-	override string toString() const {
-		auto v = toString(true);
-	//	writeln(v);
-		return v;
+	override string toString() const @safe {
+		return toString(true);
 	}
-	string toString(bool includeParameters) const {
+	string toString(bool includeParameters) const @safe {
 		string output;
 		if (Protocol == Proto.HTTPS)
 			output ~= "https://" ~ Hostname;
@@ -636,14 +632,14 @@ deprecated private string parametersToURLString(string url, in string[string] pa
 }
 class StatusException : HTTPException { 
 	public int code;
-	this(int errorCode, string file = __FILE__, size_t line = __LINE__) {
+	this(int errorCode, string file = __FILE__, size_t line = __LINE__) @safe pure {
 		import std.string : format;
 		code = errorCode;
 		super(format("Error %d fetching URL", errorCode), file, line);
 	}
 }
 class HashException : HTTPException {
-	this(string hashType, string badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) in {
+	this(string hashType, string badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure in {
 		assert(goodHash != badHash, "Good hash and mismatched hash match!");
 	} body {
 		import std.string : format;
@@ -651,7 +647,7 @@ class HashException : HTTPException {
 	}
 }
 class HTTPException : Exception {
-	this(string msg, string file = __FILE__, size_t line = __LINE__) {
+	this(string msg, string file = __FILE__, size_t line = __LINE__) @safe nothrow pure {
 		super(msg, file, line);
 	}
 }
