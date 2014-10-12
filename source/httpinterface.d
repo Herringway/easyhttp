@@ -219,6 +219,7 @@ class HTTP {
 		return url.toString();
 	}
 	class Response {
+		import core.time : Duration, dur;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		import std.digest.sha : isDigest;
 		private struct OAuthParams {
@@ -235,6 +236,7 @@ class HTTP {
 		private bool fetched = false;
 		private bool checkNoContent = false;
 		uint maxTries;
+		Duration timeout = dur!"seconds"(300);
 		URL url;
 		size_t delegate(ubyte[]) onReceive;
 		CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
@@ -372,6 +374,14 @@ class HTTP {
 			verifyPeer = val;
 			return this;
 		}
+		Response SetMaxTries(uint max) @safe pure nothrow {
+			maxTries = max;
+			return this;
+		}
+		Response SetTimeout(Duration time) @safe pure nothrow {
+			timeout = time;
+			return this;
+		}
 		string md5() pure nothrow {
 			import std.digest.md;
 			if (!fetched)
@@ -446,6 +456,7 @@ class HTTP {
 				    } else
 						_headers[key] = value.idup;
 			};
+			client.connectTimeout(timeout);
 			client.verifyPeer(!verifyPeer);
 			client.verifyHost(!ignoreHostCert);
 			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = line.code; };
