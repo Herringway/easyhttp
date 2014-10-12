@@ -77,7 +77,7 @@ class HTTPFactory {
 	}
 	HTTP spawn(in URL inURL, in string[string] reqHeaders = null) @safe {
 		if (inURL.Hostname !in activeHTTP) {
-			LogDebugV("Spawning new HTTP instance for %s", inURL.toString());
+			LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
 			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
 			if (!certPath.isNull)
@@ -116,12 +116,17 @@ class HTTP {
 		scope (failure) return;
 		HTTPClient.shutdown();
 	}
+	void AddHeader(string key, string value) {
+		HTTPClient.addRequestHeader(key, value);
+		_headers[key] = value;
+	}
 	@property string[string] headers(in string[string] newHeaders) @trusted {
-		//HTTPClient.clearRequestHeaders();
+		LogDebugV("Resetting headers: %s => []", _headers);
+		HTTPClient.clearRequestHeaders();
+		_headers = null;
 		foreach (key, value; newHeaders)
-			HTTPClient.addRequestHeader(key, value);
-		foreach (k,v; newHeaders)
-			_headers[k] = v;
+			AddHeader(key, value);
+		LogDebugV("Setting headers: %s", _headers);
 		return _headers;
 	}
 	@property string[string] headers() @safe {
@@ -158,6 +163,7 @@ class HTTP {
 	}
 	Response get(in string path, in string[string] params = null) @trusted {
 		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
+		output.outHeaders = _headers;
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
@@ -169,6 +175,7 @@ class HTTP {
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		auto output = this.new Response(HTTPClient, new URL(url.Protocol, url.Hostname, path, params), peerVerification);
+		output.outHeaders = _headers;
 		output.method = CurlHTTP.Method.post;
 		output.onReceive = null;
 		output.maxTries = retryCount;
@@ -220,8 +227,10 @@ class HTTP {
 			string token;
 			string tokenSecret;
 		}
+		string bearerToken;
 		const(ubyte)[] _content;
 		string[string] _headers;
+		string[string] _sendHeaders;
 		private CurlHTTP client;
 		private bool fetched = false;
 		private bool checkNoContent = false;
@@ -249,11 +258,15 @@ class HTTP {
 			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
+			//_sendHeaders = this.outer.headers;
 		}
 		void reset() {
 			_content = [];
 			_headers = null;
 			fetched = false;
+		}
+		@property ref string[string] outHeaders() {
+			return _sendHeaders;
 		}
 		@property string filename() nothrow {
 			return url.Filename;
@@ -304,6 +317,17 @@ class HTTP {
 			client.verbose = verbose;
 			return this;
 		}
+		Response AddHeader(string key, string val) {
+			_sendHeaders[key] = val;
+			this.outer.AddHeader(key, val);
+			return this;
+		}
+		enum OAuthMethod {Header, URL, Form };
+		Response OAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
+			bearerToken = token;
+			AddHeader("Authorization", "Bearer "~token);
+			return this;
+		}
 		Response oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
 			import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, hmac;
 			oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
@@ -327,7 +351,7 @@ class HTTP {
 				authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
 			LogDebugV("Oauth: %(%s,\n%)", authString);
 			LogDebugV("Adding header: Authorization: %s", "OAuth " ~ authString.join(", "));
-			client.addRequestHeader("Authorization", "OAuth " ~ authString.join(", "));
+			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
 			return this;
 		}
 		Response md5(string hash) @safe pure {
@@ -429,6 +453,7 @@ class HTTP {
 			uint redirectCount = 0;
 			Exception lastException;
 			foreach (trial; 0..maxTries) {
+				this.outer.headers = _sendHeaders;
 				stopWriting = false;
 				client.url = url.toString();
 				client.method = method;
@@ -510,6 +535,8 @@ class URL {
 			Protocol = Proto.Same;
 		else if ((str.length >= 1) && str[0] == '/')
 			Protocol = Proto.None;
+		else if ((str.length >= 1) && str[0] == '.')
+			Protocol = Proto.None;
 
 		//Get Hostname
 		auto splitURL = str.split("/");
@@ -517,22 +544,17 @@ class URL {
 			if (Protocol == Proto.Unknown)
 				Hostname = splitURL[0].toLower();
 			else if (Protocol == Proto.None)
-				Hostname = splitURL[1].toLower();
+				{}//Hostname = splitURL[1].toLower();
 			else
 				Hostname = splitURL[2].toLower();
 			//Get Path
 			if (Protocol == Proto.Unknown)
 				Path = splitURL[0..$].join("/");
 			else if (Protocol == Proto.None)
-				Path = splitURL[1..$].join("/");
+				Path = splitURL[0..$].join("/");
 			else
 				Path = splitURL[3..$].join("/");
 			
-			if (Path.length == 0)
-				Path = "/";
-
-			if (Path[0] != '/')
-				Path = "/"~Path;
 			auto existingParameters = Path.find("?");
 			if (existingParameters.length > 0) {
 				foreach (arg; existingParameters[1..$].split("&")) {
@@ -567,36 +589,37 @@ class URL {
 	}
 	@property string paramString() nothrow const @trusted {
 		import std.uri;
-		import std.string : format, join;
+		import std.string : format, join, replace;
 		if (Params == null) return "";
 		scope(failure) return "";
 		string[] parameterPrintable;
 		foreach (parameter, value; Params)
 			if (value == "")
-				parameterPrintable ~= parameter.encode();
+				parameterPrintable ~= parameter.encode().replace(":", "%3A");
 			else
-				parameterPrintable ~= format("%s=%s", parameter.encode(), value.encode());
+				parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A"), value.encode().replace(":", "%3A"));
 		return "?"~parameterPrintable.join("&");
 	}
 	URL absoluteURL(in string urlB, in string[string] params = null) const {
+		return absoluteURL(new URL(urlB, params));
+	}
+	URL absoluteURL(in URL urlB) const {
 		import std.string : split, join;
-		auto newURL = new URL(urlB, params);
-		if (urlB == "")
+		if (urlB.toString() == "")
 			return new URL(Protocol, Hostname, Path, Params);
-		if (toString() == urlB)
+		if (this == urlB)
 			return new URL(Protocol, Hostname, Path, Params);
-		if ((newURL.Protocol == Proto.HTTP) || (newURL.Protocol == Proto.HTTPS))
-			return newURL;
-		if ((urlB[0] == '/') && ((urlB.length == 1) || (urlB[1] != '/')))
-			return new URL(Protocol, Hostname, newURL.Path, newURL.Params);
-		if (newURL.Protocol == Proto.Same) {
-			return new URL(Protocol, newURL.Hostname, newURL.Path, newURL.Params);
-		}
-		if (urlB == ".")
+		if ((urlB.Protocol == Proto.HTTP) || (urlB.Protocol == Proto.HTTPS))
+			return new URL(urlB.Protocol, urlB.Hostname, urlB.Path, urlB.Params);
+		if ((urlB.Protocol == Proto.None) && (urlB.Path == "."))
 			return new URL(Protocol, Hostname, Path, Params);
-		if (urlB == "..")
+		if ((urlB.Protocol == Proto.None) && (urlB.Path == ".."))
 			return new URL(Protocol, Hostname, Path.split("/")[0..$-1].join("/"), Params);
-		return new URL(Protocol, Hostname, Path ~ "/" ~ urlB, Params);
+		if (urlB.Protocol == Proto.None)
+			return new URL(Protocol, Hostname, urlB.Path, urlB.Params);
+		if (urlB.Protocol == Proto.Same)
+			return new URL(Protocol, urlB.Hostname, urlB.Path, urlB.Params);
+		return new URL(Protocol, Hostname, Path ~ "/" ~ urlB.Path, Params);
 	}
 	override string toString() const @safe {
 		return toString(true);
@@ -607,13 +630,20 @@ class URL {
 			output ~= "https://" ~ Hostname;
 		else if (Protocol == Proto.HTTP)
 			output ~= "http://" ~ Hostname;
-		else if (Protocol == Proto.None)
-			output ~= "/" ~ Hostname;
+		else if ((Protocol == Proto.None) && (Hostname != Hostname.init))
+			throw new Exception("Invalid URL State");
 		else if (Protocol == Proto.Same)
 			output ~= "//" ~ Hostname;
+		if ((output.length > 0) && (output[$-1] != '/') && (Path != Path.init) && (Path[0] != '/'))
+			output ~= "/";
 		output ~= Path;
-		if (includeParameters)
-			output ~= paramString();
+		if (includeParameters) {
+			if (paramString() != "") {
+				if (Path == Path.init)
+					output ~= "/";
+				output ~= paramString();	
+			}
+		}
 		return output;
 	}
 }
@@ -652,6 +682,13 @@ class HTTPException : Exception {
 	}
 }
 unittest {
+	assert(new URL("http://url.example/?a=b").toString() == "http://url.example/?a=b", "Simple complete URL failure");
+	assert(new URL("https://url.example/?a=b").toString() == "https://url.example/?a=b", "Simple complete URL (https) failure");
+	assert(new URL("http://url.example").toString() == "http://url.example", "Simple complete URL (no ending slash) failure");
+	assert(new URL("something").toString() == "something", "Path-only relative URL recreation failure");
+	assert(new URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
+}
+unittest {
 	assert(new URL("http://url.example").Protocol == URL.Proto.HTTP, "HTTP detection failure");
 	assert(new URL("https://url.example").Protocol == URL.Proto.HTTPS, "HTTPS detection failure");
 	assert(new URL("url.example").Protocol == URL.Proto.Unknown, "No-protocol detection failure");
@@ -670,14 +707,22 @@ unittest {
 	assert(new URL("http://URL.EXAMPLE/DIR").Hostname == "url.example", "path+caps hostname detection failure");
 }
 unittest {
-	assert(new URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example/", "Switching protocol failure");
-	assert(new URL("http://url.example").absoluteURL("http://url.example").toString() == "http://url.example/", "Identical URL failure");
-	assert(new URL("http://url.example").absoluteURL("/something").toString() == "http://url.example/something", "Root-relative URL failure");
-	assert(new URL("http://url.example").absoluteURL("//different.example").toString() == "http://different.example/", "Same-protocol relative URL failure");
-	assert(new URL("http://url.example/dir").absoluteURL(".").toString() == "http://url.example/dir", "Dot URL failure");
-	assert(new URL("http://url.example/dir").absoluteURL("..").toString() == "http://url.example", "Relative parent URL failure");
-	assert(new URL("http://url.example/dir").absoluteURL("/different").toString() == "http://url.example/different", "Root-relative (w/dir) URL failure");
-	assert(new URL("http://url.example/dir").absoluteURL("different").toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL failure");
+	assert(new URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example", "Switching protocol (string) failure");
+	assert(new URL("http://url.example").absoluteURL(new URL("https://url.example")).toString() == "https://url.example", "Switching protocol (class) failure");
+	assert(new URL("http://url.example").absoluteURL("http://url.example").toString() == "http://url.example", "Identical URL (string) failure");
+	assert(new URL("http://url.example").absoluteURL(new URL("http://url.example")).toString() == "http://url.example", "Identical URL (class) failure");
+	assert(new URL("http://url.example").absoluteURL("/something").toString() == "http://url.example/something", "Root-relative URL (string) failure");
+	assert(new URL("http://url.example").absoluteURL(new URL("/something")).toString() == "http://url.example/something", "Root-relative URL (class) failure");
+	assert(new URL("http://url.example").absoluteURL("//different.example").toString() == "http://different.example", "Same-protocol relative URL (string) failure");
+	assert(new URL("http://url.example").absoluteURL(new URL("//different.example")).toString() == "http://different.example", "Same-protocol relative URL (class) failure");
+	assert(new URL("http://url.example/dir").absoluteURL(".").toString() == "http://url.example/dir", "Dot URL (string) failure");
+	assert(new URL("http://url.example/dir").absoluteURL(new URL(".")).toString() == "http://url.example/dir", "Dot URL (class) failure");
+	assert(new URL("http://url.example/dir").absoluteURL("..").toString() == "http://url.example", "Relative parent URL (string) failure");
+	assert(new URL("http://url.example/dir").absoluteURL(new URL("..")).toString() == "http://url.example", "Relative parent URL (class) failure");
+	assert(new URL("http://url.example/dir").absoluteURL("/different").toString() == "http://url.example/different", "Root-relative (w/dir) URL (string) failure");
+	assert(new URL("http://url.example/dir").absoluteURL(new URL("/different")).toString() == "http://url.example/different", "Root-relative (w/dir) URL (class) failure");
+	assert(new URL("http://url.example/dir").absoluteURL("different").toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
+	assert(new URL("http://url.example/dir").absoluteURL(new URL("different")).toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (class) failure");
 }
 unittest {
 	assert(new URL("").Params is null, "URIArguments: Empty string failure");
