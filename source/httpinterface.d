@@ -20,36 +20,46 @@ else {
 	alias LogInfo = log;
 	alias LogError = log;
 }
-string fixPath(in string inPath) in {
+string fixPath(in string inPath) nothrow in {
 	assert(inPath != "", "No path");
+} out(result) {
+	import std.path;
+	assert(result.isValidPath(), "Invalid path from fixPath("~inPath~")");
 } body {
 	import std.algorithm : min;
 	import std.string : removechars;
 	import std.path;
 	string dest = inPath;
-	version(Windows) dest = dest.removechars("\"?<>:|*");
-	if (dest[$-1] == '.')
-		dest ~= "tmp";
-	if (dest.absolutePath().length > maxPath) {
-		dest = (dest.dirName() ~ "/" ~ dest.baseName()[0..min($,(maxPath-10)-(dest.absolutePath().dirName() ~ "/" ~ dest.absolutePath().extension()).length)] ~ dest.extension()).buildNormalizedPath();
+	try {
+		version(Windows) {
+			if ((dest.length >= 4) && (dest[0..4] == `\\?\`))
+				dest = dest[4..$];
+			dest = dest.removechars(`"?<>|*`);
+			if ((dest.length >= 3) && (dest[1..3] == `:\`))
+				dest = dest[0..3]~dest[3..$].removechars(`:`);
+			else
+				dest = dest.removechars(`:`);
+		}
+		if (dest[$-1] == '.')
+			dest ~= "tmp";
+		if (dest.absolutePath().length > maxPath) {
+			dest = (dest.dirName() ~ "/" ~ dest.baseName()[0..min($,(maxPath-10)-(dest.absolutePath().dirName() ~ "/" ~ dest.absolutePath().extension()).length)] ~ dest.extension()).buildNormalizedPath();
+		}
+		version(Windows) {
+			dest = dest.absolutePath().buildNormalizedPath();
+			if ((dest.length < 4) || (dest[0..4] != `\\?\`))
+				dest = `\\?\` ~ dest;
+		}
+		return dest.idup;
+	} catch (Exception) {
+		return inPath;
 	}
-	version(Windows) {
-		dest = `\\?\` ~ dest.absolutePath().buildNormalizedPath();
-	}
-	return dest;
 }
 unittest {
-	import std.file, std.algorithm : map;
-	string[] pathsToTest = ["short", "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong", "invalid&"];
-	foreach (path; map!fixPath(pathsToTest)) {
-		try {
-			mkdirRecurse(path);
-			assert(exists(path), "Created nonexistant path: " ~ path);
-			rmdir(path);
-		} catch (Exception e) {
-			assert(false, "Bad path: " ~ path ~ "(" ~ e.msg ~ ")"); 
-		}
-	}
+	string[] pathsToTest = ["yes", "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong", "invalid&", `\\?\C:\windows\system32`];
+	foreach (path; pathsToTest)
+		fixPath(path);
+	version(Windows) assert(fixPath(`\\?\C:\windows`) == `\\?\C:\windows`);
 }
 public string[] ExtraCurlCertSearchPaths = [];
 HTTPFactory httpfactory;
@@ -132,10 +142,11 @@ class HTTP {
 	@property string[string] headers() @safe {
 		return _headers;
 	}
-	@property string CookieJar(string path) @trusted {
+	@property string CookieJar(string path) @trusted in {
 		import std.path;
 		import std.file;
 		assert(dirName(path).isDir, dirName(path)~" is not a directory!");
+	} body {
 		_cookiepath = path;
 		HTTPClient.setCookieJar(path);
 		return path;
@@ -219,6 +230,15 @@ class HTTP {
 		return url.toString();
 	}
 	class Response {
+		struct Hash {
+			Nullable!string hash;
+			Nullable!string original;
+			alias hash this;
+			this(string hash) pure @safe {
+				original = hash;
+			}
+		}
+		import std.typecons : Nullable;
 		import core.time : Duration, dur;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		import std.digest.sha : isDigest;
@@ -232,6 +252,7 @@ class HTTP {
 		const(ubyte)[] _content;
 		string[string] _headers;
 		string[string] _sendHeaders;
+		private Nullable!size_t sizeExpected;
 		private CurlHTTP client;
 		private bool fetched = false;
 		private bool checkNoContent = false;
@@ -243,8 +264,7 @@ class HTTP {
 		size_t delegate(void[] buf) onSend;
 		uint contentLength;
 		CurlHTTP.Method method;
-		private string MD5hash;
-		private string SHA1hash;
+		Hash[string] hashes;
 		private OAuthParams oAuthParams;
 		bool ignoreHostCert = false;
 		bool verifyPeer = true;
@@ -270,13 +290,26 @@ class HTTP {
 		@property ref string[string] outHeaders() {
 			return _sendHeaders;
 		}
-		@property string filename() nothrow {
+		@property string filename() nothrow const pure {
 			return url.Filename;
 		}
-		void saveTo(in string dest) {
+		struct SavedFileInformation {
+			string path;
+		}
+		SavedFileInformation saveTo(string dest, bool overwrite = true) {
+			auto output = SavedFileInformation();
+			import std.file : exists, mkdirRecurse;
+			import std.path : dirName;
+			if (!overwrite)
+				while (exists(dest))
+					dest = duplicateName(dest);
+			output.path = dest;
+			if (!exists(dest.dirName()))
+				mkdirRecurse(dest.dirName());
+			dest = dest.fixPath();
 			version(Windows) {
 				import std.stream : File, FileMode;
-				auto outFile = new File(dest.fixPath(), FileMode.OutNew);
+				auto outFile = new File(dest, FileMode.OutNew);
 				scope(exit) 
 					if (outFile.isOpen) {
 						outFile.flush();
@@ -291,7 +324,7 @@ class HTTP {
 					outFile.write(_content);
 			} else {
 				import std.stdio : File;
-				auto outFile = File(dest.fixPath(), "wb");
+				auto outFile = File(dest, "wb");
 				scope(exit) 
 					if (outFile.isOpen) {
 						outFile.flush();
@@ -305,6 +338,7 @@ class HTTP {
 				else
 					outFile.rawWrite(_content);
 			}
+			return output;
 		}
 		@property ushort status() {
 			if (!fetched)
@@ -356,15 +390,52 @@ class HTTP {
 			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
 			return this;
 		}
-		Response md5(string hash) @safe pure {
-			import std.string : toUpper;
-			MD5hash = hash.toUpper();
+		Response expectedSize(size_t size) {
+			sizeExpected = size;
 			return this;
 		}
-		Response sha1(string hash) @safe pure {
-			import std.string : toUpper;
-			SHA1hash = hash.toUpper();
-			return this;
+		import std.digest.md : MD5;
+		import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
+		import std.digest.crc : CRC32;
+		alias md5 = hash!MD5;
+		alias sha1 = hash!SHA1;
+		alias sha256 = hash!SHA256;
+		alias sha384 = hash!SHA384;
+		alias sha512 = hash!SHA512;
+		deprecated alias crc32 = hash!CRC32;
+		template hash(HashMethod) {
+			Response hash(string hash) @safe pure in {
+				import std.string : removechars;
+				assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+			} body {
+				import std.digest.digest : digestLength;
+				import std.string : toUpper, format;
+				import std.exception : enforce;
+				enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
+				hashes[HashMethod.stringof] = Hash(hash.toUpper());
+				return this;
+			}
+			public Hash hash(bool skipCompleteCheck = false) pure nothrow {
+				if (HashMethod.stringof !in hashes)
+					hashes[HashMethod.stringof] = Hash();
+				if (skipCompleteCheck || fetched)
+					hashes[HashMethod.stringof].hash = getHash!HashMethod;
+				return hashes[HashMethod.stringof];
+			}
+			public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
+				Hash output;
+				if (HashMethod.stringof in hashes)
+					output = hashes[HashMethod.stringof];
+				if (skipCompleteCheck || fetched)
+					output.hash = getHash!HashMethod;
+				return output;
+			}
+		}
+		private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
+			import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
+			auto hash = makeDigest!HashMethod;
+			hash.put(_content);
+			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 		}
 		Response IgnoreHostCertificate(bool val = true) @safe pure nothrow {
 			ignoreHostCert = val;
@@ -382,25 +453,6 @@ class HTTP {
 			timeout = time;
 			return this;
 		}
-		string md5() pure nothrow {
-			import std.digest.md;
-			if (!fetched)
-				return "";
-			return getHash!MD5;
-		}
-		string sha1() pure nothrow {
-			import std.digest.sha;
-			if (!fetched)
-				return "";
-			return getHash!SHA1;
-		}
-		private string getHash(Hash)() pure nothrow if(isDigest!Hash) {
-			import std.digest.sha : toHexString, Order, LetterCase;
-			Hash hash;
-			hash.start();
-			hash.put(_content);
-			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
-		}
 		@property string content() {
 			if (!fetched)
 				fetchContent(false);
@@ -410,25 +462,26 @@ class HTTP {
 			import std.string : lastIndexOf;
 			import stdx.data.json;
 			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
-			//if (a == -1)
-			//	a = content.length-1;
 			auto fixedContent = content[0..a+1]; //temporary hack
 			return parseJSONValue(fixedContent);
 		}
 		@property Document dom() {
 			return new Document(content);
 		}
-		void perform() {
+		void perform(bool ignoreStatus = false) {
 			if (!fetched)
-				fetchContent(false);
+				fetchContent(ignoreStatus);
 		}
 		@property string[string] headers() {
 			if (!fetched)
 				fetchContent(true);
 			return _headers;
 		}
-		private void fetchContent(bool ignoreStatus = false) {
+		private void fetchContent(bool ignoreStatus = false) in {
+			assert(maxTries > 0, "Max tries set to zero?");
+		} body {
 			import std.digest.sha : toHexString;
+			import std.exception : enforce;
 			import std.base64, std.conv : to;
 			scope (exit) {
 				client.onReceiveHeader = null;
@@ -436,7 +489,6 @@ class HTTP {
 				client.onSend = null;
 				client.handle.onSeek = null;
 			}
-			assert(maxTries > 0, "Max tries set to zero?");
 			client.contentLength = contentLength;
 			bool stopWriting = false;
 			if (onReceive is null)
@@ -460,7 +512,6 @@ class HTTP {
 			client.verifyPeer(!verifyPeer);
 			client.verifyHost(!ignoreHostCert);
 			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = line.code; };
-			//assert((client.method == CurlHTTP.Method.post) && (onSend is null), "POST Request missing onSend callback");
 			uint redirectCount = 0;
 			Exception lastException;
 			foreach (trial; 0..maxTries) {
@@ -474,27 +525,21 @@ class HTTP {
 					_headers = null;
 					client.perform();
 					stopWriting = true;
-					if ("content-md5" in _headers) {
-						scope(exit) fetched = false;
-						fetched = true;
-						if (md5 != toHexString(Base64.decode(_headers["content-md5"])))
-							throw new HashException("MD5", md5, toHexString(Base64.decode(_headers["content-md5"])));
-					}
-					if ("content-length" in _headers) {
-						if (_content.length != _headers["content-length"].to!size_t)
-							throw new HTTPException("Content length mismatched");
-					}
-					if (statusCode >= 300) {
-						if (!ignoreStatus) 
-							throw new StatusException(statusCode);
-					} else
-						fetched = true;
-					if (checkNoContent && (_content.length == 0))
-						throw new HTTPException("No data received");
-					if ((MD5hash != "") && (md5 != MD5hash))
-						throw new HashException("MD5", md5, MD5hash);
-					if ((SHA1hash != "") && (sha1 != SHA1hash))
-						throw new HashException("SHA1", sha1, SHA1hash);
+					if ("content-md5" in _headers)
+						enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
+					if ("content-length" in _headers)
+						enforce(_content.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+					if (!sizeExpected.isNull)
+						enforce(_content.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+					if (checkNoContent)
+						enforce(_content.length > 0, new HTTPException("No data received"));
+					if (!ignoreStatus) 
+						enforce(statusCode < 300, new StatusException(statusCode));
+					if (!md5(true).original.isNull())
+						enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
+					if (!sha1(true).original.isNull())
+						enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
+					fetched = true;
 					return;
 				} catch (CurlException e) {
 					lastException = e;
@@ -503,8 +548,7 @@ class HTTP {
 					LogDebugV("HTTP %s error", statusCode);
 					switch (statusCode) {
 						case 301, 302, 303, 307, 308:
-							if (redirectCount++ >= 5)
-								throw new StatusException(statusCode);
+							enforce(redirectCount++ < 5, e);
 							url = url.absoluteURL(_headers["location"]);
 							if ((statusCode == 301) || (statusCode == 302) || (statusCode == 303))
 								method = CurlHTTP.Method.get;
@@ -523,6 +567,30 @@ class HTTP {
 			throw lastException;
 		}
 	}
+}
+string duplicateName(string oldFilename) {
+	import std.string : format;
+	import std.format : formattedRead;
+	import std.path : stripExtension, extension;
+	string dupePrefix;
+	uint dupeid;
+	try {
+		auto noext = stripExtension(oldFilename);
+		formattedRead(noext, "%s(%s)", &dupePrefix, &dupeid);
+		dupeid++;
+	} catch {
+		dupePrefix = stripExtension(oldFilename);
+		dupeid = 2;
+	}
+	return format("%s(%d)%s", dupePrefix, dupeid, extension(oldFilename));
+}
+unittest {
+	assert(duplicateName("hello.txt") == "hello(2).txt", "Basic duplicate filename failure");
+	assert(duplicateName("hello") == "hello(2)", "Basic duplicate filename (no extension) failure");
+	assert(duplicateName("hello(2).txt") == "hello(3).txt", "Second duplicate filename failure");
+	assert(duplicateName("hello(10).txt") == "hello(11).txt", "Double digit duplicate filename failure");
+	assert(duplicateName("hello(11).txt") == "hello(12).txt", "Double digit 2 duplicate filename failure");
+	assert(duplicateName("hello(a).txt") == "hello(a)(2).txt", "Double digit 2 duplicate filename failure");
 }
 class URL {
 	string[string] Params;
@@ -594,7 +662,7 @@ class URL {
 		foreach (k, v; inParams)
 			Params[k] = v;
 	}
-	@property string Filename() nothrow const {
+	@property string Filename() nothrow const pure {
 		import std.string : split;
 		return Path.split("/")[$-1];
 	}
@@ -657,6 +725,11 @@ class URL {
 		}
 		return output;
 	}
+}
+@property HTTP.Response NullResponse() {
+	auto fakeURL = "http://localhost";
+	auto h = new HTTP(fakeURL);
+	return h.get(fakeURL);
 }
 deprecated private string parametersToURLString(string url, in string[string] parameters) {
 	import std.uri;
@@ -751,6 +824,29 @@ unittest {
 	assert(new URL("http://url.example/?test", ["test2": "value"]).Params == ["test":"", "test2":"value"], "Merged parameters failure");
 }
 unittest {
+	import std.exception;
+	auto httpinstance = new HTTP("http://misc.herringway.pw");
+	assertNotThrown(httpinstance.get("/.test.php").md5("7528035a93ee69cedb1dbddb2f0bfcc8").status);
+	assertNotThrown(httpinstance.get("/.test.php").md5("7528035A93EE69CEDB1DBDDB2F0BFCC8").status);
+	assertNotThrown(httpinstance.get("/.test.php").sha1("f030bbbd32966cde41037b98a8849c46b76e4bc1").status);
+	assertNotThrown(httpinstance.get("/.test.php").sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC1").status);
+	assertThrown(httpinstance.get("/.test.php").md5("7528035A93EE69CEDB1DBDDB2F0BFCC9").status);
+	assertThrown(httpinstance.get("/.test.php").md5(""));
+	assertThrown(httpinstance.get("/.test.php").sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC2").status);
+}
+unittest {
+	import std.exception;
+	auto httpinstance = new HTTP("http://misc.herringway.pw");
+	assertNotThrown(httpinstance.get("/.test.php").expectedSize(3).status);
+	assertThrown(httpinstance.get("/.test.php").expectedSize(4).status);
+}
+unittest {
+	import std.exception;
+	auto httpinstance = new HTTP("http://misc.herringway.pw");
+	assertNotThrown(httpinstance.post("/.test.php", "hi").guaranteeData().status);
+	assertThrown(httpinstance.post("/.test.php", "").guaranteeData().status);
+}
+unittest {
 	import std.exception, std.file;
 	auto tURL = new HTTP("http://misc.herringway.pw", ["Referer":"http://sg.test"]);
 	assert(tURL.get("/.test.php").content == "GET");
@@ -775,8 +871,10 @@ unittest {
 	assert(tURL.post("/.test.php", "beep").content == "beep", "POST failed");
 	auto a1 = tURL.get("/whack.gif");
 	scope(exit) if (exists("whack.gif")) remove("whack.gif");
+	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
 	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
 	a1.saveTo("whack.gif");
+	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
 	a1.saveTo("whack2.gif");
 	auto resp1 = tURL.post("/.test.php?1", "beep1");
 	auto resp2 = tURL.post("/.test.php?2", "beep2");
