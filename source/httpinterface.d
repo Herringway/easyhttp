@@ -1,11 +1,10 @@
 module httpinterface;
 
+public import fs;
 public import stdx.data.json : JSONValue;
 public deprecated alias Json = JSONValue;
 public import arsd.dom : Document, Element;
 
-version(Windows) int maxPath = 260;
-version(Posix) int maxPath = 255;
 public uint defaultMaxTries = 5;
 version(Have_loggins) private import loggins;
 else {
@@ -20,47 +19,7 @@ else {
 	alias LogInfo = log;
 	alias LogError = log;
 }
-string fixPath(in string inPath) nothrow in {
-	assert(inPath != "", "No path");
-} out(result) {
-	import std.path;
-	assert(result.isValidPath(), "Invalid path from fixPath("~inPath~")");
-} body {
-	import std.algorithm : min;
-	import std.string : removechars;
-	import std.path;
-	string dest = inPath;
-	try {
-		version(Windows) {
-			if ((dest.length >= 4) && (dest[0..4] == `\\?\`))
-				dest = dest[4..$];
-			dest = dest.removechars(`"?<>|*`);
-			if ((dest.length >= 3) && (dest[1..3] == `:\`))
-				dest = dest[0..3]~dest[3..$].removechars(`:`);
-			else
-				dest = dest.removechars(`:`);
-		}
-		if (dest[$-1] == '.')
-			dest ~= "tmp";
-		if (dest.absolutePath().length > maxPath) {
-			dest = (dest.dirName() ~ "/" ~ dest.baseName()[0..min($,(maxPath-10)-(dest.absolutePath().dirName() ~ "/" ~ dest.absolutePath().extension()).length)] ~ dest.extension()).buildNormalizedPath();
-		}
-		version(Windows) {
-			dest = dest.absolutePath().buildNormalizedPath();
-			if ((dest.length < 4) || (dest[0..4] != `\\?\`))
-				dest = `\\?\` ~ dest;
-		}
-		return dest.idup;
-	} catch (Exception) {
-		return inPath;
-	}
-}
-unittest {
-	string[] pathsToTest = ["yes", "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong", "invalid&", `\\?\C:\windows\system32`];
-	foreach (path; pathsToTest)
-		fixPath(path);
-	version(Windows) assert(fixPath(`\\?\C:\windows`) == `\\?\C:\windows`);
-}
+
 public string[] ExtraCurlCertSearchPaths = [];
 HTTPFactory httpfactory;
 static this() {
