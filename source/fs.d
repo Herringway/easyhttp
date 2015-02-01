@@ -52,3 +52,27 @@ unittest {
 		fixPath(path);
 	version(Windows) assert(fixPath(`\\?\C:\windows`) == `\\?\C:\windows`);
 }
+@property string duplicateName(string oldFilename) {
+	import std.string : format;
+	import std.format : formattedRead;
+	import std.path : stripExtension, extension;
+	string dupePrefix;
+	uint dupeid;
+	try {
+		auto noext = stripExtension(oldFilename);
+		formattedRead(noext, "%s(%s)", &dupePrefix, &dupeid);
+		dupeid++;
+	} catch {
+		dupePrefix = stripExtension(oldFilename);
+		dupeid = 2;
+	}
+	return format("%s(%d)%s", dupePrefix, dupeid, extension(oldFilename));
+}
+unittest {
+	assert("hello.txt"    .duplicateName == "hello(2).txt",    "Basic duplicate filename failure");
+	assert("hello"        .duplicateName == "hello(2)",        "Basic duplicate filename (no extension) failure");
+	assert("hello(2).txt" .duplicateName == "hello(3).txt",    "Second duplicate filename failure");
+	assert("hello(10).txt".duplicateName == "hello(11).txt",   "Double digit duplicate filename failure");
+	assert("hello(11).txt".duplicateName == "hello(12).txt",   "Double digit 2 duplicate filename failure");
+	assert("hello(a).txt" .duplicateName == "hello(a)(2).txt", "Double digit 2 duplicate filename failure");
+}

@@ -527,30 +527,6 @@ class HTTP {
 		}
 	}
 }
-string duplicateName(string oldFilename) {
-	import std.string : format;
-	import std.format : formattedRead;
-	import std.path : stripExtension, extension;
-	string dupePrefix;
-	uint dupeid;
-	try {
-		auto noext = stripExtension(oldFilename);
-		formattedRead(noext, "%s(%s)", &dupePrefix, &dupeid);
-		dupeid++;
-	} catch {
-		dupePrefix = stripExtension(oldFilename);
-		dupeid = 2;
-	}
-	return format("%s(%d)%s", dupePrefix, dupeid, extension(oldFilename));
-}
-unittest {
-	assert(duplicateName("hello.txt") == "hello(2).txt", "Basic duplicate filename failure");
-	assert(duplicateName("hello") == "hello(2)", "Basic duplicate filename (no extension) failure");
-	assert(duplicateName("hello(2).txt") == "hello(3).txt", "Second duplicate filename failure");
-	assert(duplicateName("hello(10).txt") == "hello(11).txt", "Double digit duplicate filename failure");
-	assert(duplicateName("hello(11).txt") == "hello(12).txt", "Double digit 2 duplicate filename failure");
-	assert(duplicateName("hello(a).txt") == "hello(a)(2).txt", "Double digit 2 duplicate filename failure");
-}
 class URL {
 	string[string] Params;
 	enum Proto { Unknown, HTTP, HTTPS, FTP, Same, None};
