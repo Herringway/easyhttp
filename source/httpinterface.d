@@ -587,18 +587,18 @@ unittest {
 	enum testHost = "http://misc.herringway.pw";
 	enum testPath = "/.test.php";
 	auto httpinstance = httpfactory.spawn(testHost);
-	assertNotThrown(httpinstance.get(testPath).md5("7528035a93ee69cedb1dbddb2f0bfcc8").status);
-	assertNotThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC8").status);
-	assertNotThrown(httpinstance.get(testPath).sha1("f030bbbd32966cde41037b98a8849c46b76e4bc1").status);
-	assertNotThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC1").status);
-	assertThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC9").status, "MD5 failure (incorrect hash)");
-	assertThrown(httpinstance.get(testPath).md5(""), "MD5 failure (empty string)");
-	assertThrown(httpinstance.get(testPath).md5("BAD").perform(), "MD5 failure (BAD)");
-	assertThrown(httpinstance.get(testPath).sha1("BAD").perform(), "SHA1 failure (BAD)");
-	assertThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC2").status, "SHA1 failure (incorrect hash)");
+	assertNotThrown(httpinstance.get(testPath).md5("7528035a93ee69cedb1dbddb2f0bfcc8").status, "MD5 failure (lowercase)");
+	assertNotThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC8").status, "MD5 failure (uppercase)");
+	assertNotThrown(httpinstance.get(testPath).sha1("f030bbbd32966cde41037b98a8849c46b76e4bc1").status, "SHA1 failure (lowercase)");
+	assertNotThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC1").status, "SHA1 failure (uppercase)");
+	assertThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC9").status, "Bad MD5 (incorrect hash)");
+	assertThrown(httpinstance.get(testPath).md5(""), "Bad MD5 (empty string)");
+	assertThrown(httpinstance.get(testPath).md5("BAD").perform(), "Bad MD5 (BAD)");
+	assertThrown(httpinstance.get(testPath).sha1("BAD").perform(), "Bad SHA1 (BAD)");
+	assertThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC2").status, "Bad SHA1 (incorrect hash)");
 
-	assertNotThrown(httpinstance.get(testPath).expectedSize(3).status);
-	assertThrown(httpinstance.get(testPath).expectedSize(4).status);
+	assertNotThrown(httpinstance.get(testPath).expectedSize(3).status, "Expected size failure (correct size given)");
+	assertThrown(httpinstance.get(testPath).expectedSize(4).status, "Expected size failure (intentional bad size)");
 
 	assertNotThrown(httpinstance.post(testPath, "hi").guaranteeData().status);
 	assertThrown(httpinstance.post(testPath, "").guaranteeData().status);
