@@ -1,6 +1,11 @@
 module hmac;
 
-ubyte[] HMAC(Hash)(string inKey, string data) @safe pure nothrow {
+private import std.digest.md : MD5;
+private import std.digest.sha : SHA1;
+public alias HMAC_SHA1 = HMAC!SHA1;
+public alias HMAC_MD5 = HMAC!MD5;
+
+public ubyte[] HMAC(Hash)(string inKey, string data) @safe pure nothrow {
 	import std.string : representation;
 	ubyte[] key = inKey.representation.dup;
 	if (key.length > 64) {
