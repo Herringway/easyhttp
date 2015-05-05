@@ -130,8 +130,8 @@ class HTTP {
 		peerVerification = true;
 		return path;
 	}
-	Response get(URL inURL) {
-		auto output = Response(HTTPClient, url.absoluteURL(inURL), peerVerification);
+	auto get(T = string)(URL inURL) {
+		auto output = Response!(T)(HTTPClient, url.absoluteURL(inURL), peerVerification);
 		output.outHeaders = _headers;
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
@@ -139,20 +139,20 @@ class HTTP {
 		LogDebugV("Spawning GET Response for host %s, path %s", output.url.Hostname, output.url.Path);
 		return output;
 	}
-	Response post(URL url, POSTParams data) {
-		return post(url.Path, data, url.Params);
+	auto post(T = string)(URL url, POSTParams data) {
+		return post!T(url.Path, data, url.Params);
 	}
-	auto post(URL url, POSTData data) {
-		return post(url.Path, data, url.Params);
+	auto post(T = string)(URL url, POSTData data) {
+		return post!T(url.Path, data, url.Params);
 	}
-	auto get(in string path, URLParameters params = URLParameters.init) @trusted {
-		return get(URL(url.Protocol, url.Hostname, path, params));
+	auto get(T = string)(in string path, URLParameters params = URLParameters.init) @trusted {
+		return get!T(URL(url.Protocol, url.Hostname, path, params));
 	}
-	auto post(string path, POSTData inData, URLParameters params = URLParameters.init) @trusted {
+	auto post(T = string)(string path, POSTData inData, URLParameters params = URLParameters.init) @trusted {
 		import std.string : representation;
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
-		auto output = Response(HTTPClient, URL(url.Protocol, url.Hostname, path, params), peerVerification);
+		auto output = Response!T(HTTPClient, URL(url.Protocol, url.Hostname, path, params), peerVerification);
 		output.outHeaders = _headers;
 		output.method = CurlHTTP.Method.post;
 		output.onReceive = null;
@@ -185,21 +185,21 @@ class HTTP {
 		LogDebugV("Spawning POST Response for host %s, path %s", output.url.Hostname, output.url.Path);
 		return output;
 	}
-	auto post(string path, POSTParams data, URLParameters params = URLParameters.init) {
+	auto post(T = string)(string path, POSTParams data, URLParameters params = URLParameters.init) {
 		import std.uri : encode;
 		import std.string : join;
 		string[] newdata;
 		foreach (key, val; data)
 			newdata ~= encode(key) ~ "=" ~ encode(val);
-		return post(path, newdata.join("&"), params);
+		return post!T(path, newdata.join("&"), params);
 	}
-	Response post(string path, in POSTParams data, in URLParameters params = URLParameters.init) {
-		return post(path, data.dup, params.dup);
+	auto post(T = string)(string path, in POSTParams data, in URLParameters params = URLParameters.init) {
+		return post!T(path, data.dup, params.dup);
 	}
 	override string toString() {
 		return url.toString();
 	}
-	struct Response {
+	struct Response(ContentType) {
 		struct Hash {
 			Nullable!string hash;
 			Nullable!string original;
@@ -426,9 +426,15 @@ class HTTP {
 			return this;
 		}
 		@property string content() {
+			import std.encoding : transcode;
 			if (!fetched)
 				fetchContent(false);
-			return cast(string)_content;
+			static if (!is(ContentType == string)) {
+				string data;
+				transcode(cast(ContentType)_content, data);
+				return data;
+			} else
+				return cast(string)_content;
 		}
 		@property JSONValue json() {
 			import std.string : lastIndexOf;
