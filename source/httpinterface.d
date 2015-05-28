@@ -24,11 +24,87 @@ alias POSTData = string;
 alias POSTParams = string[string];
 
 public string[] ExtraCurlCertSearchPaths = [];
+
+enum HTTPStatus : ushort {
+	//1xx - Informational
+	Continue = 100,
+	SwitchingProtocols = 101,
+	Processing = 102,
+	//2xx - Successful
+	OK = 200,
+	Created = 201,
+	Accepted = 202,
+	NonAuthoritative = 203,
+	NoContent = 204,
+	ResetContent = 205,
+	PartialContent = 206,
+	MultiStatus = 207,
+	AlreadyReported = 208,
+	IMUsed = 226,
+	//3xx - Redirecting
+	MultipleChoices = 300,
+	MovedPermanently = 301,
+	Found = 302,
+	SeeOther = 303,
+	NotModified = 304,
+	UseProxy = 305,
+	SwitchProxy = 306, //Not used anymore
+	TemporaryRedirect = 307,
+	PermanentRedirect = 308,
+	//4xx - Client Error
+	BadRequest = 400,
+	Unauthorized = 401,
+	PaymentRequired = 402,
+	Forbidden = 403,
+	NotFound = 404,
+	MethodNotAllowed = 405,
+	NotAcceptable = 406,
+	ProxyAuthenticationRequired = 407,
+	RequestTimeout = 408,
+	Conflict = 409,
+	Gone = 410,
+	LengthRequired = 411,
+	PreconditionFailed = 412,
+	RequestEntityTooLarge = 413,
+	RequestURITooLong = 414,
+	UnsupportedMediaType = 415,
+	RequestRangeNotSatisfiable = 416,
+	ExpectationFailed = 417,
+	ImATeapot = 418,
+	AuthenticationTimeout = 419,
+	MethodFailure = 420,
+	EnhanceYourCalm = 420,
+	MisdirectedRequest = 421,
+	UnprocessableEntity = 422,
+	Locked = 423,
+	FailedDependency = 424,
+	UpgradeRequired = 426,
+	PreconditionRequired = 428,
+	TooManyRequests = 429,
+	RequestHeaderFieldsTooLarge = 431,
+	LoginTimeout = 440,
+	RetryWith = 449,
+	BlockedByWindowsParentalControls = 450,
+	UnavailableForLegalReasons = 451,
+	//5xx - Server Error
+	InternalServerError = 500,
+	NotImplemented = 501,
+	BadGateway = 502,
+	ServiceUnavailable = 503,
+	GatewayTimeout = 504,
+	HTTPVersionNotSupported = 505,
+	VariantAlsoNegotiates = 506,
+	InsufficientStorage = 507,
+	LoopDetected = 508,
+	BandwidthLimitExceeded = 509,
+	NotExtended = 510,
+	NetworkAuthenticationRequired = 511
+}
 HTTPFactory httpfactory;
 static this() {
-	httpfactory = new HTTPFactory;
+	httpfactory = HTTPFactory();
 }
-class HTTPFactory {
+struct HTTPFactory {
 	import std.typecons : Nullable;
 	public string CookieJar;
 	public uint RetryCount = 5;
@@ -238,7 +314,8 @@ class HTTP {
 		private OAuthParams oAuthParams;
 		bool ignoreHostCert = false;
 		bool verifyPeer = true;
-		ushort statusCode;
+		HTTPStatus statusCode;
+		Nullable!string overriddenFilename;
 		@disable this();
 		invariant() {
 			assert((url.Protocol != Proto.Unknown) && (url.Protocol != Proto.None) && (url.Protocol != Proto.Same), "No protocol specified in URL");
@@ -313,7 +390,7 @@ class HTTP {
 			}
 			return output;
 		}
-		@property ushort status() {
+		@property HTTPStatus status() {
 			if (!fetched)
 				fetchContent(true);
 			return statusCode;
@@ -490,7 +567,7 @@ class HTTP {
 			client.connectTimeout(timeout);
 			client.verifyPeer(!verifyPeer);
 			client.verifyHost(!ignoreHostCert);
-			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = line.code; };
+			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
 			debug LogTrace("Completed setting curl parameters");
 			uint redirectCount = 0;
 			Exception lastException;
@@ -528,14 +605,14 @@ class HTTP {
 					LogDebugV("%s", e);
 				} catch (StatusException e) {
 					LogDebugV("HTTP %s error", statusCode);
-					switch (statusCode) {
-						case 301, 302, 303, 307, 308:
+					with(HTTPStatus) switch (statusCode) {
+						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
 							enforce(redirectCount++ < 5, e);
 							url = url.absoluteURL(_headers["location"]);
-							if ((statusCode == 301) || (statusCode == 302) || (statusCode == 303))
+							if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
 								method = CurlHTTP.Method.get;
 							break;
-						case 500, 502, 503, 504:
+						case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
 							break;
 						default: 
 							throw new StatusException(statusCode);
@@ -568,8 +645,8 @@ deprecated private string parametersToURLString(string url, in string[string] pa
 	return url;
 }
 class StatusException : HTTPException { 
-	public int code;
-	this(int errorCode, string file = __FILE__, size_t line = __LINE__) @safe pure {
+	public HTTPStatus code;
+	this(HTTPStatus errorCode, string file = __FILE__, size_t line = __LINE__) @safe pure {
 		import std.string : format;
 		code = errorCode;
 		super(format("Error %d fetching URL", errorCode), file, line);
@@ -612,22 +689,22 @@ unittest {
 	auto tURL = httpfactory.spawn(testHost, ["Referer":testHost]);
 	assert(tURL.get(testPath).content == "GET", "GET string failure");
 	assert(tURL.get(URL(testPath)).content == "GET", "GET URL failure");
-	assert(tURL.get(testPath).status == 200, "200 status undetected");
+	assert(tURL.get(testPath).status == HTTPStatus.OK, "200 status undetected");
 	assert(tURL.get(testPath~"?301").content == "GET");
-	assert(tURL.get(testPath~"?301").status == 301, "301 error undetected");
+	assert(tURL.get(testPath~"?301").status == HTTPStatus.MovedPermanently, "301 error undetected");
 	assert(tURL.get(testPath~"?302").content == "GET");
-	assert(tURL.get(testPath~"?302").status == 302, "302 error undetected");
+	assert(tURL.get(testPath~"?302").status == HTTPStatus.Found, "302 error undetected");
 	assert(tURL.get(testPath~"?303").content == "GET");
-	assert(tURL.get(testPath~"?303").status == 303, "303 error undetected");
+	assert(tURL.get(testPath~"?303").status == HTTPStatus.SeeOther, "303 error undetected");
 	assert(tURL.get(testPath~"?307").content == "GET");
-	assert(tURL.get(testPath~"?307").status == 307, "307 error undetected");
+	assert(tURL.get(testPath~"?307").status == HTTPStatus.TemporaryRedirect, "307 error undetected");
 	assert(tURL.get(testPath~"?308").content == "GET");
 	assertThrown(tURL.get(testPath~"?403").perform());
-	assert(tURL.get(testPath~"?403").status == 403, "403 error undetected");
+	assert(tURL.get(testPath~"?403").status == HTTPStatus.Forbidden, "403 error undetected");
 	assertThrown(tURL.get(testPath~"?404").perform());
-	assert(tURL.get(testPath~"?404").status == 404, "404 error undetected");
+	assert(tURL.get(testPath~"?404").status == HTTPStatus.NotFound, "404 error undetected");
 	assertThrown(tURL.get(testPath~"?500").perform());
-	assert(tURL.get(testPath~"?500").status == 500, "500 error undetected");
+	assert(tURL.get(testPath~"?500").status == HTTPStatus.InternalServerError, "500 error undetected");
 	assert(tURL.post(testPath, "beep").content == "beep", "POST string failed");
 	assert(tURL.post(URL(testPath), "beep").content == "beep", "POST URL failed");
 
