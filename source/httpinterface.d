@@ -328,6 +328,9 @@ class HTTP {
 			client = &inClient;
 			url = initial;
 		}
+		@property bool isComplete() const {
+			return fetched;
+		}
 		void reset() nothrow pure @safe {
 			_content = [];
 			_headers = null;
