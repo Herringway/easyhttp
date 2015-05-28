@@ -108,8 +108,8 @@ struct HTTPFactory {
 	public string CookieJar;
 	public uint RetryCount = 5;
 	private HTTP[string] activeHTTP;
-	private Nullable!string certPath;
-	this() @safe {
+	private static Nullable!string certPath;
+	static this() @safe {
 		import std.file : exists;
 		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
 		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
