@@ -74,5 +74,5 @@ unittest {
 	assert("hello(2).txt" .duplicateName == "hello(3).txt",    "Second duplicate filename failure");
 	assert("hello(10).txt".duplicateName == "hello(11).txt",   "Double digit duplicate filename failure");
 	assert("hello(11).txt".duplicateName == "hello(12).txt",   "Double digit 2 duplicate filename failure");
-	assert("hello(a).txt" .duplicateName == "hello(a)(2).txt", "Double digit 2 duplicate filename failure");
+	assert("hello(a).txt" .duplicateName == "hello(a)(2).txt", "Non-numeric duplicate filename failure");
 }
