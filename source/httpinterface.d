@@ -2,7 +2,6 @@ module httpinterface;
 
 public import fs, url;
 public import stdx.data.json : JSONValue;
-public deprecated alias Json = JSONValue;
 public import arsd.dom : Document, Element;
 
 public uint defaultMaxTries = 5;
@@ -450,13 +449,11 @@ class HTTP {
 		}
 		import std.digest.md : MD5;
 		import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
-		import std.digest.crc : CRC32;
 		alias md5 = hash!MD5;
 		alias sha1 = hash!SHA1;
 		alias sha256 = hash!SHA256;
 		alias sha384 = hash!SHA384;
 		alias sha512 = hash!SHA512;
-		deprecated alias crc32 = hash!CRC32;
 		template hash(HashMethod) {
 			auto hash(string hash) @safe pure in {
 				import std.string : removechars;
@@ -657,19 +654,6 @@ unittest {
 }
 @property auto NullResponse() {
 	return httpfactory.spawn("http://localhost").get("http://localhost");
-}
-deprecated private string parametersToURLString(string url, in string[string] parameters) {
-	import std.uri;
-	import std.algorithm : canFind;
-	import std.string : split, format, join;
-	if (parameters == null) return url;
-	if (parameters.length > 0) {
-		string[] parameterPrintable;
-		foreach (parameter, value; parameters)
-			parameterPrintable ~= format("%s=%s", parameter.encode(), value.encode());
-		return url ~ (url.split("/")[$-1].canFind("?") ? "&" : "?") ~ parameterPrintable.join("&");
-	}
-	return url;
 }
 class StatusException : HTTPException { 
 	public HTTPStatus code;
