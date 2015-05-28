@@ -337,6 +337,8 @@ class HTTP {
 			return _sendHeaders;
 		}
 		@property string filename() nothrow const pure {
+			if (!overriddenFilename.isNull)
+				return overriddenFilename;
 			return url.Filename;
 		}
 		@property bool isValid() nothrow const {
@@ -584,6 +586,11 @@ class HTTP {
 					_headers = null;
 					client.perform();
 					stopWriting = true;
+					if ("content-disposition" in _headers) {
+						auto disposition = parseDispositionString(_headers["content-disposition"]);
+						if (!disposition.Filename.isNull)
+							overriddenFilename = disposition.Filename;
+					}
 					if ("content-md5" in _headers)
 						enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
 					if ("content-length" in _headers)
@@ -627,7 +634,24 @@ class HTTP {
 		}
 	}
 }
-
+struct ContentDisposition {
+	import std.typecons : Nullable;
+	Nullable!string Filename;
+}
+auto parseDispositionString(string str) @safe {
+	import std.regex;
+	import std.stdio;
+	auto output = ContentDisposition();
+	auto regex = ctRegex!`attachment;\s*filename\s*=\s*"?([^"]*)"?`;
+	auto match = matchFirst(str, regex);
+	if (!match.empty)
+		output.Filename = match[1];
+	return output;
+}
+unittest {
+	assert(parseDispositionString(`attachment; filename=example.txt`).Filename == "example.txt");
+	assert(parseDispositionString(`attachment; filename="example.txt"`).Filename == "example.txt");
+}
 @property auto NullResponse() {
 	return httpfactory.spawn("http://localhost").get("http://localhost");
 }
