@@ -145,13 +145,13 @@ class HTTP {
 	public uint retryCount = 5;
 
 	private CurlHTTP HTTPClient;
-	private string[string] _headers;
+	private URLHeaders _headers;
 	private string _cookiepath;
 	private bool peerVerification = false;
-	this(in string inURL, in string[string] reqHeaders = null) @trusted {
+	this(in string inURL, URLHeaders reqHeaders = null) @trusted {
 		this(URL(inURL), reqHeaders);
 	}
-	this(in URL inURL, in string[string] reqHeaders = null) @trusted {
+	this(in URL inURL, URLHeaders reqHeaders = null) @trusted {
 		import etc.c.curl;
 		retryCount = defaultMaxTries;
 		url = inURL;
@@ -161,7 +161,7 @@ class HTTP {
 		HTTPClient.maxRedirects(uint.max);
 		headers(reqHeaders);
 	}
-	this(in string hostname, in useHTTPS https, in string[string] reqHeaders) {
+	this(in string hostname, useHTTPS https, URLHeaders reqHeaders) {
 		this("http"~(https ? "s" : "")~"://"~hostname, reqHeaders);
 	}
 	~this() nothrow {
@@ -172,16 +172,14 @@ class HTTP {
 		HTTPClient.addRequestHeader(key, value);
 		_headers[key] = value;
 	}
-	@property string[string] headers(in string[string] newHeaders) @trusted {
+	@property URLHeaders headers(URLHeaders newHeaders) @trusted {
 		LogDebugV("Resetting headers: %s => []", _headers);
 		HTTPClient.clearRequestHeaders();
-		_headers = null;
-		foreach (key, value; newHeaders)
-			AddHeader(key, value);
+		_headers = newHeaders;
 		LogDebugV("Setting headers: %s", _headers);
 		return _headers;
 	}
-	@property string[string] headers() @safe {
+	@property URLHeaders headers() @safe {
 		return _headers;
 	}
 	@property string CookieJar(FileSystemPath path) @trusted in {
@@ -295,8 +293,8 @@ class HTTP {
 		}
 		string bearerToken;
 		const(ubyte)[] _content;
-		string[string] _headers;
-		string[string] _sendHeaders;
+		URLHeaders _headers;
+		URLHeaders _sendHeaders;
 		private Nullable!size_t sizeExpected;
 		private CurlHTTP* client;
 		private bool fetched = false;
@@ -335,7 +333,7 @@ class HTTP {
 			_headers = null;
 			fetched = false;
 		}
-		@property ref string[string] outHeaders() {
+		@property ref URLHeaders outHeaders() {
 			return _sendHeaders;
 		}
 		@property string filename() nothrow const pure {
@@ -420,7 +418,7 @@ class HTTP {
 		auto oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
 			import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, hmac;
 			oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
-			string[string] params;
+			URLParameters params;
 			auto copy_url = URL(url.toString(false), url.Params);
 			params["oauth_consumer_key"] = copy_url.Params["oauth_consumer_key"] = oAuthParams.consumerToken;
 			params["oauth_token"] = copy_url.Params["oauth_token"] = oAuthParams.token;
@@ -529,7 +527,7 @@ class HTTP {
 			if (!fetched)
 				fetchContent(ignoreStatus);
 		}
-		@property string[string] headers() {
+		@property URLHeaders headers() {
 			if (!fetched)
 				fetchContent(true);
 			return _headers;
