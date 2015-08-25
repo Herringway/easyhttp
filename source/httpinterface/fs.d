@@ -1,4 +1,4 @@
-module fs;
+module httpinterface.fs;
 
 
 version(Windows) int maxPath = 260;

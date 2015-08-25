@@ -1,4 +1,4 @@
-module hmac;
+module httpinterface.hmac;
 
 private import std.digest.md : MD5;
 private import std.digest.sha : SHA1;

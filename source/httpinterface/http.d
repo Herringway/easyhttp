@@ -1,6 +1,7 @@
-module httpinterface;
+module httpinterface.http;
+version = Old;
 
-public import fs, url;
+private import httpinterface.fs, httpinterface.url;
 public import stdx.data.json : JSONValue;
 public import arsd.dom : Document, Element;
 
@@ -21,9 +22,22 @@ else {
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
+version(Old) public alias RequestType = HTTP.Response!string;
+version(New) public alias RequestType = HTTPRequest;
 
 public string[] ExtraCurlCertSearchPaths = [];
 
+enum HTTPMethod {
+	GET,
+	HEAD,
+	POST,
+	PUT,
+	DELETE,
+	TRACE,
+	OPTIONS,
+	CONNECT,
+	PATCH
+}
 enum HTTPStatus : ushort {
 	//1xx - Informational
 	Continue = 100,
@@ -100,14 +114,25 @@ enum HTTPStatus : ushort {
 	NetworkAuthenticationRequired = 511
 }
 HTTPFactory httpfactory;
+CURLFactory curlfactory;
 static this() {
 	httpfactory = HTTPFactory();
+	curlfactory = CURLFactory();
 }
-struct HTTPFactory {
+
+struct SavedFileInformation {
+	string path;
+}
+class curlClientWrapper {
+	import std.net.curl : CurlHTTP = HTTP;
+	CurlHTTP* curl;
+	alias curl this;
+	this() { auto Curl = CurlHTTP(); curl = &Curl; }
+}
+struct CURLFactory {
+	import std.net.curl : CurlHTTP = HTTP;
 	import std.typecons : Nullable;
-	public string CookieJar;
-	public uint RetryCount = 5;
-	private HTTP[string] activeHTTP;
+	private curlClientWrapper[string] curlInstances;
 	private static Nullable!string certPath;
 	static this() @safe {
 		import std.file : exists;
@@ -122,22 +147,329 @@ struct HTTPFactory {
 				break;
 			}
 	}
-	HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) {
-		LogDebugV("Spawning...%s", inURL);
-		if (inURL.Hostname !in activeHTTP) {
-			LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
-			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
-			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
-			if (!certPath.isNull)
-				activeHTTP[inURL.Hostname].Certificates = certPath;
-		} else
-			LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
-		return activeHTTP[inURL.Hostname];
-	}
-	HTTP spawn(in string inURL, URLHeaders reqHeaders = URLHeaders.init) {
-		return spawn(URL(inURL), reqHeaders);
+	auto ref spawnInstance(string hostname) {
+		if (hostname !in curlInstances)
+			curlInstances[hostname] = new curlClientWrapper;
+		return &curlInstances[hostname];
 	}
 }
+struct HTTPFactory {
+	import std.typecons : Nullable;
+	public string CookieJar;
+	public uint RetryCount = 5;
+	private static Nullable!string certPath;
+	static this() @safe {
+		import std.file : exists;
+		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
+		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
+		version(Linux) caCertSearchPaths ~= ["/usr/share/ca-certificates"];
+		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs/ca-root-nss.crt"];
+		foreach (path; caCertSearchPaths)
+			if (path.exists) {
+				certPath = path;
+				LogDebugV("Found certs at %s", path);
+				break;
+			}
+	}
+	version(Old) {
+		private HTTP[string] activeHTTP;
+		HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
+			assert(inURL.Hostname, "Missing hostname in provided URL");
+			assert((inURL.Protocol != URL.Proto.Unknown) && (inURL.Protocol != URL.Proto.None) && (inURL.Protocol != URL.Proto.Same), "Bad protocol for provided URL");
+		} body {
+			LogDebugV("Spawning...%s", inURL);
+			if (inURL.Hostname !in activeHTTP) {
+				LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
+				activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
+				activeHTTP[inURL.Hostname].CookieJar = CookieJar;
+				if (!certPath.isNull)
+					activeHTTP[inURL.Hostname].Certificates = certPath;
+			} else
+				LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
+			return activeHTTP[inURL.Hostname];
+		}
+		HTTP spawn(in string inURL, URLHeaders reqHeaders = URLHeaders.init) {
+			return spawn(URL(inURL), reqHeaders);
+		}
+		HTTP.Response!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
+			return spawn(inURL, headers).get!T(inURL.Path, inURL.Params);
+		}
+		HTTP.Response!T post(T = string)(URL inURL, string data, URLHeaders headers = URLHeaders.init) {
+			return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);	
+		}
+		HTTP.Response!T post(T = string)(URL inURL, string[string] data, URLHeaders headers = URLHeaders.init) {
+			return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);
+		}
+	}
+	version(New) {
+		HTTPRequest get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
+			auto output = HTTPRequest(HTTPMethod.GET, inURL, headers);
+			return output;
+		}
+		HTTPRequest post(T = string)(URL inURL, in string data, URLHeaders headers = URLHeaders.init) {
+			auto output = HTTPRequest(HTTPMethod.POST, inURL, headers);
+			output.POSTData = data;
+			return output;
+		}
+		HTTPRequest post(T = string)(URL inURL, in string[string] data, URLHeaders headers = URLHeaders.init) {
+			auto output = HTTPRequest(HTTPMethod.POST, inURL, headers);
+			output.POSTData = data;
+			return output;
+		}	
+	}
+}
+
+struct HTTPRequest {
+	import std.net.curl : CurlHTTP = HTTP;
+	import std.typecons : Nullable;
+	import core.time : Duration, dur;
+	HTTPMethod Method;
+	URL url;
+	URLHeaders headers;
+	URLHeaders outHeaders;
+	uint retryCount = 5;
+	size_t contentLength;
+	bool IgnoreHostCertificate = false;
+	bool DisablePeerVerification = false;
+	Duration Timeout = dur!"minutes"(5);
+	uint MaxTries;
+	Nullable!string OAuthBearer;
+	Nullable!ulong expectedSize;
+	bool guaranteeData = false;
+	private Nullable!(ubyte[]) _content;
+	private Nullable!(HTTPStatus) _status;
+	private Nullable!string overriddenFilename;
+	private ubyte[] _POSTData;
+
+	import std.digest.sha : isDigest;
+
+	Hash[string] hashes;
+	struct Hash {
+		Nullable!string hash;
+		Nullable!string original;
+		alias hash this;
+		this(string inHash) pure @safe {
+			original = inHash;
+		}
+	}
+
+	import std.digest.md : MD5;
+	import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
+	alias md5 = hash!MD5;
+	alias sha1 = hash!SHA1;
+	alias sha256 = hash!SHA256;
+	alias sha384 = hash!SHA384;
+	alias sha512 = hash!SHA512;
+	template hash(HashMethod) {
+		auto hash(string hash) @safe pure in {
+			import std.string : removechars;
+			assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+		} body {
+			import std.digest.digest : digestLength;
+			import std.string : toUpper, format;
+			import std.exception : enforce;
+			enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
+			hashes[HashMethod.stringof] = Hash(hash.toUpper());
+			return this;
+		}
+		public Hash hash(bool skipCompleteCheck = false) pure nothrow {
+			if (HashMethod.stringof !in hashes)
+				hashes[HashMethod.stringof] = Hash();
+			if (skipCompleteCheck || !_content.isNull)
+				hashes[HashMethod.stringof].hash = getHash!HashMethod;
+			return hashes[HashMethod.stringof];
+		}
+		public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
+			Hash output;
+			if (HashMethod.stringof in hashes)
+				output = hashes[HashMethod.stringof];
+			if (skipCompleteCheck || !_content.isNull)
+				output.hash = getHash!HashMethod;
+			return output;
+		}
+	}
+
+	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
+		import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
+		auto hash = makeDigest!HashMethod;
+		hash.put(_content);
+		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
+	}
+	SavedFileInformation saveTo(string dest, bool overwrite = true) {
+		return SavedFileInformation();
+	}
+	void perform(bool ignoreStatus = false) {
+		auto client = curlfactory.spawnInstance(url.Hostname);
+		ubyte[] contentBuffer;
+			import std.digest.sha : toHexString;
+			import std.exception : enforce;
+			import std.base64, std.conv : to;
+			import std.net.curl : CurlException, CurlSeekPos, CurlSeek;
+			scope (exit) {
+				client.onReceiveHeader = null;
+    			client.onReceiveStatusLine = null;
+				client.onSend = null;
+				client.handle.onSeek = null;
+			}
+			client.contentLength = contentLength;
+			bool stopWriting = false;
+			client.onReceive = (ubyte[] data) {
+				if (!stopWriting)
+			    	contentBuffer ~= data;
+			    return data.length;
+			};
+			if (Method == HTTPMethod.POST) {
+				auto remainingData = _POSTData;
+			    client.onSend = delegate size_t(void[] buf)
+			    {
+			    	import std.algorithm : min;
+			        size_t minLen = min(buf.length, remainingData.length);
+			        if (minLen == 0) return 0;
+			        buf[0..minLen] = remainingData[0..minLen];
+					LogDebugV("POSTING %s", remainingData[0..minLen]);
+			        remainingData = remainingData[minLen..$];
+			        return minLen;
+			    };
+			    client.handle.onSeek = delegate(long offset, CurlSeekPos mode)
+			    {
+			        switch (mode)
+			        {
+			            case CurlSeekPos.set:
+			                remainingData = _POSTData[cast(size_t)offset..$];
+			                return CurlSeek.ok;
+			            default:
+			                return CurlSeek.cantseek;
+			        }
+			    };
+			}
+			client.onReceiveHeader = (in char[] key, in char[] value) {
+				if (auto v = key in headers) {
+						*v ~= ", ";
+						*v ~= value;
+				    } else
+						headers[key] = value.idup;
+			};
+			client.connectTimeout(Timeout);
+			client.verifyPeer(!DisablePeerVerification);
+			client.verifyHost(!IgnoreHostCertificate);
+			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { _status = cast(HTTPStatus)line.code; };
+			debug LogTrace("Completed setting curl parameters");
+			uint redirectCount = 0;
+			Exception lastException;
+			client.clearRequestHeaders();
+			foreach (key, value; outHeaders)
+				client.addRequestHeader(key, value);
+			foreach (trial; 0..MaxTries) {
+				stopWriting = false;
+				client.url = url.toString();
+				switch (Method) {
+					case HTTPMethod.GET:
+						client.method = CurlHTTP.Method.get; break;
+					case HTTPMethod.POST:
+						client.method = CurlHTTP.Method.post; break;
+					case HTTPMethod.HEAD:
+						client.method = CurlHTTP.Method.head; break;
+					default: throw new Exception("Unsupported method");
+				}
+				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, outHeaders);
+				try {
+					headers = null;
+					client.perform();
+					stopWriting = true;
+					if ("content-disposition" in headers) {
+						auto disposition = parseDispositionString(headers["content-disposition"]);
+						if (!disposition.Filename.isNull)
+							overriddenFilename = disposition.Filename;
+					}
+					if ("content-md5" in headers)
+						enforce(md5(true) == toHexString(Base64.decode(headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(headers["content-md5"]))));
+					if ("content-length" in headers)
+						enforce(contentBuffer.length == headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+					if (!expectedSize.isNull)
+						enforce(contentBuffer.length == expectedSize, new HTTPException("Size of data mismatched expected size"));
+					if (guaranteeData)
+						enforce(contentBuffer.length > 0, new HTTPException("No data received"));
+					if (!ignoreStatus) 
+						enforce(_status < 300, new StatusException(_status));
+					if (!md5(true).original.isNull())
+						enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
+					if (!sha1(true).original.isNull())
+						enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
+					_content = contentBuffer;
+					return;
+				} catch (CurlException e) {
+					lastException = e;
+					LogDebugV("%s", e);
+				} catch (StatusException e) {
+					LogDebugV("HTTP %s error", _status);
+					with(HTTPStatus) switch (_status.get()) {
+						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
+							enforce(redirectCount++ < 5, e);
+							url = url.absoluteURL(headers["location"]);
+							if ((_status == MovedPermanently) || (_status == Found) || (_status == SeeOther))
+								Method = HTTPMethod.GET;
+							break;
+						case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
+							break;
+						default: 
+							throw new StatusException(_status);
+					}
+					lastException = e;
+				} catch (HTTPException e) {
+					lastException = e;
+					LogDebugV("%s", e);
+				}
+			}
+			throw lastException;
+	}
+	@property {
+		string content(ContentType = string)() {
+			import std.encoding : transcode;
+			if (_content.isNull())
+				perform();
+			static if (is(ContentType == string)) {
+				return cast(string)_content;
+			} else if (is(ContentType == ubyte[])) {
+				return _content;
+			} else if (!is(ContentType == string)) {
+				string data;
+				transcode(cast(ContentType)_content, data);
+				return data;
+			}
+		}
+		string filename() const pure nothrow {
+			return "";
+		}
+		ushort status() {
+			if (_status.isNull)
+				perform();
+			return _status;
+		}
+		JSONValue json() {
+			import std.string : lastIndexOf;
+			import stdx.data.json;
+			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
+			auto fixedContent = content[0..a+1]; //temporary hack
+			return parseJSONValue(fixedContent);
+		}
+		Document dom() {
+			return new Document(content);
+		}
+		void POSTData(in ubyte[] data) {
+
+		}
+		void POSTData(in string data) {
+
+		}
+		void POSTData(in string[string] data) {
+
+		}
+		bool isComplete() const pure nothrow {
+			return !_content.isNull;
+		}
+	}
+}
+
 class HTTP {
 	import std.net.curl : CurlException, CurlHTTP = HTTP;
 	public const(URL) url;
@@ -145,9 +477,10 @@ class HTTP {
 	public uint retryCount = 5;
 
 	private CurlHTTP HTTPClient;
-	private URLHeaders _headers;
+	URLHeaders headers;
 	private string _cookiepath;
 	private bool peerVerification = false;
+	debug static ulong numInstances = 0;
 	this(in string inURL, URLHeaders reqHeaders = null) @trusted {
 		this(URL(inURL), reqHeaders);
 	}
@@ -159,7 +492,11 @@ class HTTP {
 		HTTPClient = CurlHTTP();
 		HTTPClient.verifyPeer(false);
 		HTTPClient.maxRedirects(uint.max);
-		headers(reqHeaders);
+		HTTPClient.clearRequestHeaders();
+		headers = reqHeaders;
+		if ("User-Agent" !in headers)
+			headers["User-Agent"] = "curlOO (libcurl/7.34.0)";
+		numInstances++;
 	}
 	this(in string hostname, useHTTPS https, URLHeaders reqHeaders) {
 		this("http"~(https ? "s" : "")~"://"~hostname, reqHeaders);
@@ -167,20 +504,6 @@ class HTTP {
 	~this() nothrow {
 		scope (failure) return;
 		HTTPClient.shutdown();
-	}
-	void AddHeader(string key, string value) {
-		HTTPClient.addRequestHeader(key, value);
-		_headers[key] = value;
-	}
-	@property URLHeaders headers(URLHeaders newHeaders) @trusted {
-		LogDebugV("Resetting headers: %s => []", _headers);
-		HTTPClient.clearRequestHeaders();
-		_headers = newHeaders;
-		LogDebugV("Setting headers: %s", _headers);
-		return _headers;
-	}
-	@property URLHeaders headers() @safe {
-		return _headers;
 	}
 	@property string CookieJar(FileSystemPath path) @trusted in {
 		import std.path;
@@ -205,7 +528,7 @@ class HTTP {
 	}
 	auto get(T = string)(URL inURL) {
 		auto output = Response!(T)(HTTPClient, url.absoluteURL(inURL), peerVerification);
-		output.outHeaders = _headers;
+		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
@@ -226,7 +549,7 @@ class HTTP {
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		auto output = Response!T(HTTPClient, URL(url.Protocol, url.Hostname, path, params), peerVerification);
-		output.outHeaders = _headers;
+		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.post;
 		output.onReceive = null;
 		output.maxTries = retryCount;
@@ -266,9 +589,6 @@ class HTTP {
 			newdata ~= encode(key) ~ "=" ~ encode(val);
 		return post!T(path, newdata.join("&"), params);
 	}
-	auto post(T = string)(string path, in POSTParams data, in URLParameters params = URLParameters.init) {
-		return post!T(path, data.dup, params.dup);
-	}
 	override string toString() {
 		return url.toString();
 	}
@@ -294,7 +614,7 @@ class HTTP {
 		string bearerToken;
 		const(ubyte)[] _content;
 		URLHeaders _headers;
-		URLHeaders _sendHeaders;
+		URLHeaders outHeaders;
 		private Nullable!size_t sizeExpected;
 		private CurlHTTP* client;
 		private bool fetched = false;
@@ -313,7 +633,6 @@ class HTTP {
 		bool verifyPeer = true;
 		HTTPStatus statusCode;
 		Nullable!string overriddenFilename;
-		@disable this();
 		invariant() {
 			assert((url.Protocol != Proto.Unknown) && (url.Protocol != Proto.None) && (url.Protocol != Proto.Same), "No protocol specified in URL");
 			assert(!(cast()*client).isStopped(), "Dead curl instance!");
@@ -333,9 +652,6 @@ class HTTP {
 			_headers = null;
 			fetched = false;
 		}
-		@property ref URLHeaders outHeaders() {
-			return _sendHeaders;
-		}
 		@property string filename() nothrow const pure {
 			if (!overriddenFilename.isNull)
 				return overriddenFilename;
@@ -344,9 +660,6 @@ class HTTP {
 		@property bool isValid() nothrow const {
 			scope(failure) return false;
 			return !(cast()*client).isStopped();
-		}
-		struct SavedFileInformation {
-			string path;
 		}
 		SavedFileInformation saveTo(string dest, bool overwrite = true) {
 			auto output = SavedFileInformation();
@@ -397,26 +710,22 @@ class HTTP {
 				fetchContent(true);
 			return statusCode;
 		}
-		auto guaranteeData(bool val = true) @safe pure nothrow {
+		void guaranteeData(bool val = true) @safe pure nothrow {
 			checkNoContent = val;
-			return this;
 		}
-		auto setVerbosity(bool verbose = true) {
+		void setVerbosity(bool verbose = true) {
 			client.verbose = verbose;
-			return this;
 		}
-		auto AddHeader(string key, string val) {
-			_sendHeaders[key] = val;
-			return this;
+		void AddHeader(string key, string val) {
+			outHeaders[key] = val;
 		}
 		enum OAuthMethod {Header, URL, Form };
-		auto OAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
+		void OAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
 			bearerToken = token;
 			AddHeader("Authorization", "Bearer "~token);
-			return this;
 		}
-		auto oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
-			import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, hmac;
+		void oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
+			import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, httpinterface.hmac;
 			oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 			URLParameters params;
 			auto copy_url = URL(url.toString(false), url.Params);
@@ -439,11 +748,9 @@ class HTTP {
 			LogDebugV("Oauth: %(%s,\n%)", authString);
 			LogDebugV("Adding header: Authorization: %s", "OAuth " ~ authString.join(", "));
 			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
-			return this;
 		}
-		auto expectedSize(size_t size) {
+		void expectedSize(size_t size) {
 			sizeExpected = size;
-			return this;
 		}
 		import std.digest.md : MD5;
 		import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
@@ -486,21 +793,17 @@ class HTTP {
 			hash.put(_content);
 			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 		}
-		auto IgnoreHostCertificate(bool val = true) @safe pure nothrow {
+		void IgnoreHostCertificate(bool val = true) @safe pure nothrow {
 			ignoreHostCert = val;
-			return this;
 		}
-		auto DisablePeerVerification(bool val = true) @safe pure nothrow {
+		void DisablePeerVerification(bool val = true) @safe pure nothrow {
 			verifyPeer = val;
-			return this;
 		}
-		auto SetMaxTries(uint max) @safe pure nothrow {
+		void MaxTries(uint max) @safe pure nothrow {
 			maxTries = max;
-			return this;
 		}
-		auto SetTimeout(Duration time) @safe pure nothrow {
+		void Timeout(Duration time) @safe pure nothrow {
 			timeout = time;
-			return this;
 		}
 		@property string content() {
 			import std.encoding : transcode;
@@ -527,7 +830,7 @@ class HTTP {
 			if (!fetched)
 				fetchContent(ignoreStatus);
 		}
-		@property URLHeaders headers() {
+		@property const(URLHeaders) headers() {
 			if (!fetched)
 				fetchContent(true);
 			return _headers;
@@ -572,13 +875,13 @@ class HTTP {
 			uint redirectCount = 0;
 			Exception lastException;
 			client.clearRequestHeaders();
-			foreach (key, value; _sendHeaders)
+			foreach (key, value; outHeaders)
 				client.addRequestHeader(key, value);
 			foreach (trial; 0..maxTries) {
 				stopWriting = false;
 				client.url = url.toString();
 				client.method = method;
-				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, _sendHeaders);
+				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, outHeaders);
 				try {
 					_content = [];
 					_headers = null;
@@ -651,7 +954,7 @@ unittest {
 	assert(parseDispositionString(`attachment; filename="example.txt"`).Filename == "example.txt");
 }
 @property auto NullResponse() {
-	return httpfactory.spawn("http://localhost").get("http://localhost");
+	return httpfactory.get(URL("http://localhost"));
 }
 class StatusException : HTTPException { 
 	public HTTPStatus code;
@@ -676,59 +979,80 @@ class HTTPException : Exception {
 }
 unittest {
 	import std.exception, std.file;
+	import std.stdio : writeln, writefln;
 	enum testHost = "http://misc.herringway.pw";
 	enum testPath = "/.test.php";
-	auto httpinstance = httpfactory.spawn(testHost);
-	assertNotThrown(httpinstance.get(testPath).md5("7528035a93ee69cedb1dbddb2f0bfcc8").status, "MD5 failure (lowercase)");
-	assertNotThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC8").status, "MD5 failure (uppercase)");
-	assertNotThrown(httpinstance.get(testPath).sha1("f030bbbd32966cde41037b98a8849c46b76e4bc1").status, "SHA1 failure (lowercase)");
-	assertNotThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC1").status, "SHA1 failure (uppercase)");
-	assertThrown(httpinstance.get(testPath).md5("7528035A93EE69CEDB1DBDDB2F0BFCC9").status, "Bad MD5 (incorrect hash)");
-	assertThrown(httpinstance.get(testPath).md5(""), "Bad MD5 (empty string)");
-	assertThrown(httpinstance.get(testPath).md5("BAD").perform(), "Bad MD5 (BAD)");
-	assertThrown(httpinstance.get(testPath).sha1("BAD").perform(), "Bad SHA1 (BAD)");
-	assertThrown(httpinstance.get(testPath).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC2").status, "Bad SHA1 (incorrect hash)");
+	enum testURL = URL("http://misc.herringway.pw/.test.php");
+	enum testHeaders = ["Referer": testURL.Hostname];
+	writeln(httpfactory.get(testURL.withParams(["dump":""])).content);
+	assertNotThrown(httpfactory.get(testURL).md5("7528035a93ee69cedb1dbddb2f0bfcc8").status, "MD5 failure (lowercase)");
+	assertNotThrown(httpfactory.get(testURL).md5("7528035A93EE69CEDB1DBDDB2F0BFCC8").status, "MD5 failure (uppercase)");
+	assertNotThrown(httpfactory.get(testURL).sha1("f030bbbd32966cde41037b98a8849c46b76e4bc1").status, "SHA1 failure (lowercase)");
+	assertNotThrown(httpfactory.get(testURL).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC1").status, "SHA1 failure (uppercase)");
+	assertThrown(httpfactory.get(testURL).md5("7528035A93EE69CEDB1DBDDB2F0BFCC9").status, "Bad MD5 (incorrect hash)");
+	assertThrown(httpfactory.get(testURL).md5(""), "Bad MD5 (empty string)");
+	assertThrown(httpfactory.get(testURL).md5("BAD").perform(), "Bad MD5 (BAD)");
+	assertThrown(httpfactory.get(testURL).sha1("BAD").perform(), "Bad SHA1 (BAD)");
+	assertThrown(httpfactory.get(testURL).sha1("F030BBBD32966CDE41037B98A8849C46B76E4BC2").status, "Bad SHA1 (incorrect hash)");
+ 	{
+ 		auto req = httpfactory.get(testURL);
+ 		req.expectedSize = 3;
+ 		assertNotThrown(req.status, "Expected size failure (correct size given)");
+ 		req = httpfactory.get(testURL);
+ 		req.expectedSize = 4;
+ 		assertThrown(req.status, "Expected size failure (intentional bad size)");
+ 	}
+	{
+		auto req = httpfactory.post(testURL, "hi");
+		req.guaranteeData = true;
+		assertNotThrown(req.status);
+	}
+	{
+		auto req = httpfactory.post(testURL, "");
+		req.guaranteeData = true;
+		assertThrown(req.status);
+	}
+	assert(httpfactory.get(testURL, testHeaders).content == "GET", "GET URL failure");
+	assert(httpfactory.get(testURL, testHeaders).status == HTTPStatus.OK, "200 status undetected");
+	assert(httpfactory.get(testURL.withParams(["301":""])).content == "GET");
+	assert(httpfactory.get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
+	assert(httpfactory.get(testURL.withParams(["302":""])).content == "GET");
+	assert(httpfactory.get(testURL.withParams(["302":""])).status == HTTPStatus.Found, "302 error undetected");
+	assert(httpfactory.get(testURL.withParams(["303":""])).content == "GET");
+	assert(httpfactory.get(testURL.withParams(["303":""])).status == HTTPStatus.SeeOther, "303 error undetected");
+	assert(httpfactory.get(testURL.withParams(["307":""])).content == "GET");
+	assert(httpfactory.get(testURL.withParams(["307":""])).status == HTTPStatus.TemporaryRedirect, "307 error undetected");
+	assert(httpfactory.get(testURL.withParams(["308":""])).content == "GET");
+	assertThrown(httpfactory.get(testURL.withParams(["403":""])).perform());
+	assert(httpfactory.get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
+	assertThrown(httpfactory.get(testURL.withParams(["404":""])).perform());
+	assert(httpfactory.get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
+	assertThrown(httpfactory.get(testURL.withParams(["500":""])).perform());
+	assert(httpfactory.get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
+	assert(httpfactory.post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
 
-	assertNotThrown(httpinstance.get(testPath).expectedSize(3).status, "Expected size failure (correct size given)");
-	assertThrown(httpinstance.get(testPath).expectedSize(4).status, "Expected size failure (intentional bad size)");
-
-	assertNotThrown(httpinstance.post(testPath, "hi").guaranteeData().status);
-	assertThrown(httpinstance.post(testPath, "").guaranteeData().status);
-
-	auto tURL = httpfactory.spawn(testHost, ["Referer":testHost]);
-	assert(tURL.get(testPath).content == "GET", "GET string failure");
-	assert(tURL.get(URL(testPath)).content == "GET", "GET URL failure");
-	assert(tURL.get(testPath).status == HTTPStatus.OK, "200 status undetected");
-	assert(tURL.get(testPath~"?301").content == "GET");
-	assert(tURL.get(testPath~"?301").status == HTTPStatus.MovedPermanently, "301 error undetected");
-	assert(tURL.get(testPath~"?302").content == "GET");
-	assert(tURL.get(testPath~"?302").status == HTTPStatus.Found, "302 error undetected");
-	assert(tURL.get(testPath~"?303").content == "GET");
-	assert(tURL.get(testPath~"?303").status == HTTPStatus.SeeOther, "303 error undetected");
-	assert(tURL.get(testPath~"?307").content == "GET");
-	assert(tURL.get(testPath~"?307").status == HTTPStatus.TemporaryRedirect, "307 error undetected");
-	assert(tURL.get(testPath~"?308").content == "GET");
-	assertThrown(tURL.get(testPath~"?403").perform());
-	assert(tURL.get(testPath~"?403").status == HTTPStatus.Forbidden, "403 error undetected");
-	assertThrown(tURL.get(testPath~"?404").perform());
-	assert(tURL.get(testPath~"?404").status == HTTPStatus.NotFound, "404 error undetected");
-	assertThrown(tURL.get(testPath~"?500").perform());
-	assert(tURL.get(testPath~"?500").status == HTTPStatus.InternalServerError, "500 error undetected");
-	assert(tURL.post(testPath, "beep").content == "beep", "POST string failed");
-	assert(tURL.post(URL(testPath), "beep").content == "beep", "POST URL failed");
-
-	assert(tURL.get(testPath~"?PRINTHEADER").AddHeader("echo", "hello world").content == "hello world", "adding header failed");
-
-	auto a1 = tURL.get("/whack.gif");
+	{
+		auto req = httpfactory.get(testURL.withParams(["saveas":"example"]));
+		req.perform();
+		assert(req.filename == "example", "content-disposition failure");
+	}
+	{
+		auto req = httpfactory.get(testURL.withParams(["PRINTHEADER": ""]));
+		req.outHeaders["echo"] = "hello world";
+		assert(req.content == "hello world", "adding header failed");
+	}
+	enum testDownloadURL = URL("http://misc.herringway.pw/whack.gif");
+	auto a1 = httpfactory.get(testDownloadURL);
 	scope(exit) if (exists("whack.gif")) remove("whack.gif");
 	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
 	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
 	a1.saveTo("whack.gif");
 	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
 	a1.saveTo("whack2.gif");
-	auto resp1 = tURL.post(testPath~"?1", "beep1");
-	auto resp2 = tURL.post(testPath~"?2", "beep2");
+	auto resp1 = httpfactory.post(testURL.withParams(["1": ""]), "beep1");
+	auto resp2 = httpfactory.post(testURL.withParams(["2": ""]), "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp1.content == "beep1");
+	version(Old) debug writefln("Spawned %d instances.", httpfactory.spawn(testURL).numInstances);
 }

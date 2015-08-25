@@ -1,4 +1,4 @@
-module url;
+module httpinterface.url;
 
 alias URLParameters = string[string];
 alias URLHeaders = string[string];
@@ -85,6 +85,9 @@ struct URL {
 	@property string Filename() nothrow const pure {
 		import std.string : split;
 		return Path.split("/")[$-1];
+	}
+	URL withParams(URLParameters newParams) {
+		return URL(Protocol, Hostname, Path, newParams);
 	}
 	@property string paramString() nothrow const @trusted {
 		import std.uri;
