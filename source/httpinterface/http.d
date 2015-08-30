@@ -2,7 +2,7 @@ module httpinterface.http;
 version = Old;
 
 private import httpinterface.fs, httpinterface.url;
-public import stdx.data.json : JSONValue;
+public import stdx.data.json;
 public import arsd.dom : Document, Element;
 
 public uint defaultMaxTries = 5;
@@ -496,7 +496,7 @@ class HTTP {
 		headers = reqHeaders;
 		if ("User-Agent" !in headers)
 			headers["User-Agent"] = "curlOO (libcurl/7.34.0)";
-		numInstances++;
+		debug numInstances++;
 	}
 	this(in string hostname, useHTTPS https, URLHeaders reqHeaders) {
 		this("http"~(https ? "s" : "")~"://"~hostname, reqHeaders);
