@@ -512,9 +512,11 @@ class HTTP {
 		import std.file;
 		assert(dirName(path).isDir, dirName(path)~" is not a directory!");
 	} body {
-		_cookiepath = path;
-		HTTPClient.setCookieJar(path);
-		return path;
+		import std.path : absolutePath, buildNormalizedPath;
+		_cookiepath = buildNormalizedPath(path.absolutePath);
+		LogDebugV("Setting cookie jar path: %s", _cookiepath);
+		HTTPClient.setCookieJar(_cookiepath);
+		return _cookiepath;
 	}
 	@property string CookieJar() @safe {
 		return _cookiepath;
