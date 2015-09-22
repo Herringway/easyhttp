@@ -931,6 +931,7 @@ class HTTP {
 					with(HTTPStatus) switch (statusCode) {
 						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
 							enforce(redirectCount++ < 5, e);
+							LogDebugV("Changing URL to %s and retrying", _headers["location"]);
 							url = url.absoluteURL(_headers["location"]);
 							if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
 								method = CurlHTTP.Method.get;
