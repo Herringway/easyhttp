@@ -721,9 +721,11 @@ class HTTP {
 		void guaranteeData(bool val = true) @safe pure nothrow {
 			checkNoContent = val;
 		}
-		void setVerbosity(bool verbose = true) {
+		@property bool setVerbosity(bool verbose = true) {
 			client.verbose = verbose;
+			return verbose;
 		}
+		alias verbose = setVerbosity;
 		void AddHeader(string key, string val) {
 			outHeaders[key] = val;
 		}
