@@ -826,12 +826,17 @@ class HTTP {
 			} else
 				return cast(string)_content;
 		}
-		@property JSONValue json() {
+		@property T json(T = JSONValue)() {
 			import std.string : lastIndexOf;
 			import stdx.data.json;
 			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
 			auto fixedContent = content[0..a+1]; //temporary hack
-			return parseJSONValue(fixedContent);
+			static if (is(T==JSONValue)) {
+				return parseJSONValue(fixedContent);
+			} else {
+				import siryul;
+				return fixedContent.fromString!(T,JSON);
+			}
 		}
 		@property Document dom() {
 			return new Document(content);
