@@ -21,7 +21,7 @@ struct DownloadError {
 }
 struct QueuedDownload {
 	size_t ID;
-	HTTPRequest Request;
+	RequestType Request;
 	string DestPath;
 }
 struct DownloadManager {

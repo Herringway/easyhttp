@@ -2,6 +2,7 @@ module httpinterface.http;
 version = Old;
 
 private import httpinterface.fs, httpinterface.url;
+private import std.utf : UTFException;
 public import stdx.data.json;
 public import arsd.dom : Document, Element;
 
@@ -561,7 +562,11 @@ class HTTP {
 	        size_t minLen = min(buf.length, remainingData.length);
 	        if (minLen == 0) return 0;
 	        buf[0..minLen] = remainingData[0..minLen];
-			LogDebugV("POSTING %s", remainingData[0..minLen]);
+	        try {
+				LogDebugV("POSTING %s", cast(string)remainingData[0..minLen]);
+	        } catch (UTFException e) {
+				LogDebugV("POSTING %s", remainingData[0..minLen]);
+			}
 	        remainingData = remainingData[minLen..$];
 	        return minLen;
 	    };
