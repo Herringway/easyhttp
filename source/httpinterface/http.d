@@ -7,8 +7,9 @@ public import stdx.data.json;
 public import arsd.dom : Document, Element;
 
 public uint defaultMaxTries = 5;
-version(Have_loggins) private import loggins;
-else {
+version(Have_loggins) {
+	private import loggins;
+} else {
 	void log(T...)(string fmt, T params) {
 		import std.stdio : writefln;
 		writefln(fmt, params);
