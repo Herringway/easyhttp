@@ -1,5 +1,4 @@
 module httpinterface.http;
-version = Old;
 
 private import httpinterface.fs, httpinterface.url;
 private import std.utf : UTFException;
@@ -24,8 +23,7 @@ version(Have_loggins) {
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
-version(Old) public alias RequestType = HTTP.Response!string;
-version(New) public alias RequestType = HTTPRequest;
+public alias RequestType = HTTP.Response!string;
 
 public string[] ExtraCurlCertSearchPaths = [];
 
@@ -116,44 +114,12 @@ enum HTTPStatus : ushort {
 	NetworkAuthenticationRequired = 511
 }
 HTTPFactory httpfactory;
-CURLFactory curlfactory;
 static this() {
 	httpfactory = HTTPFactory();
-	curlfactory = CURLFactory();
 }
 
 struct SavedFileInformation {
 	string path;
-}
-class curlClientWrapper {
-	import std.net.curl : CurlHTTP = HTTP;
-	CurlHTTP* curl;
-	alias curl this;
-	this() { auto Curl = CurlHTTP(); curl = &Curl; }
-}
-struct CURLFactory {
-	import std.net.curl : CurlHTTP = HTTP;
-	import std.typecons : Nullable;
-	private curlClientWrapper[string] curlInstances;
-	private static Nullable!string certPath;
-	static this() @safe {
-		import std.file : exists;
-		string[] caCertSearchPaths = ExtraCurlCertSearchPaths;
-		version(Windows) caCertSearchPaths ~= "./curl-ca-bundle.crt";
-		version(Linux) caCertSearchPaths ~= ["/usr/share/ca-certificates"];
-		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs/ca-root-nss.crt"];
-		foreach (path; caCertSearchPaths)
-			if (path.exists) {
-				certPath = path;
-				LogDebugV("Found certs at %s", path);
-				break;
-			}
-	}
-	auto ref spawnInstance(string hostname) {
-		if (hostname !in curlInstances)
-			curlInstances[hostname] = new curlClientWrapper;
-		return &curlInstances[hostname];
-	}
 }
 struct HTTPFactory {
 	import std.typecons : Nullable;
@@ -173,302 +139,33 @@ struct HTTPFactory {
 				break;
 			}
 	}
-	version(Old) {
-		private HTTP[string] activeHTTP;
-		HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
-			assert(inURL.Hostname, "Missing hostname in provided URL");
-			assert((inURL.Protocol != URL.Proto.Unknown) && (inURL.Protocol != URL.Proto.None) && (inURL.Protocol != URL.Proto.Same), "Bad protocol for provided URL");
-		} body {
-			LogDebugV("Spawning...%s", inURL);
-			if (inURL.Hostname !in activeHTTP) {
-				LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
-				activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
-				activeHTTP[inURL.Hostname].CookieJar = CookieJar;
-				if (!certPath.isNull)
-					activeHTTP[inURL.Hostname].Certificates = certPath;
-			} else
-				LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
-			return activeHTTP[inURL.Hostname];
-		}
-		HTTP spawn(in string inURL, URLHeaders reqHeaders = URLHeaders.init) {
-			return spawn(URL(inURL), reqHeaders);
-		}
-		HTTP.Response!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
-			return spawn(inURL, headers).get!T(inURL.Path, inURL.Params);
-		}
-		HTTP.Response!T post(T = string)(URL inURL, string data, URLHeaders headers = URLHeaders.init) {
-			return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);	
-		}
-		HTTP.Response!T post(T = string)(URL inURL, string[string] data, URLHeaders headers = URLHeaders.init) {
-			return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);
-		}
+	private HTTP[string] activeHTTP;
+	HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
+		assert(inURL.Hostname, "Missing hostname in provided URL");
+		assert((inURL.Protocol != URL.Proto.Unknown) && (inURL.Protocol != URL.Proto.None) && (inURL.Protocol != URL.Proto.Same), "Bad protocol for provided URL");
+	} body {
+		LogDebugV("Spawning...%s", inURL);
+		if (inURL.Hostname !in activeHTTP) {
+			LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
+			activeHTTP[inURL.Hostname] = new HTTP(inURL, reqHeaders);
+			activeHTTP[inURL.Hostname].CookieJar = CookieJar;
+			if (!certPath.isNull)
+				activeHTTP[inURL.Hostname].Certificates = certPath;
+		} else
+			LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
+		return activeHTTP[inURL.Hostname];
 	}
-	version(New) {
-		HTTPRequest get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
-			auto output = HTTPRequest(HTTPMethod.GET, inURL, headers);
-			return output;
-		}
-		HTTPRequest post(T = string)(URL inURL, in string data, URLHeaders headers = URLHeaders.init) {
-			auto output = HTTPRequest(HTTPMethod.POST, inURL, headers);
-			output.POSTData = data;
-			return output;
-		}
-		HTTPRequest post(T = string)(URL inURL, in string[string] data, URLHeaders headers = URLHeaders.init) {
-			auto output = HTTPRequest(HTTPMethod.POST, inURL, headers);
-			output.POSTData = data;
-			return output;
-		}	
+	HTTP spawn(in string inURL, URLHeaders reqHeaders = URLHeaders.init) {
+		return spawn(URL(inURL), reqHeaders);
 	}
-}
-
-struct HTTPRequest {
-	import std.net.curl : CurlHTTP = HTTP;
-	import std.typecons : Nullable;
-	import core.time : Duration, dur;
-	HTTPMethod Method;
-	URL url;
-	URLHeaders headers;
-	URLHeaders outHeaders;
-	uint retryCount = 5;
-	size_t contentLength;
-	bool IgnoreHostCertificate = false;
-	bool DisablePeerVerification = false;
-	Duration Timeout = dur!"minutes"(5);
-	uint MaxTries;
-	Nullable!string OAuthBearer;
-	Nullable!ulong expectedSize;
-	bool guaranteeData = false;
-	private Nullable!(ubyte[]) _content;
-	private Nullable!(HTTPStatus) _status;
-	private Nullable!string overriddenFilename;
-	private ubyte[] _POSTData;
-
-	import std.digest.sha : isDigest;
-
-	Hash[string] hashes;
-	struct Hash {
-		Nullable!string hash;
-		Nullable!string original;
-		alias hash this;
-		this(string inHash) pure @safe {
-			original = inHash;
-		}
+	HTTP.Response!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
+		return spawn(inURL, headers).get!T(inURL.Path, inURL.Params);
 	}
-
-	import std.digest.md : MD5;
-	import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
-	alias md5 = hash!MD5;
-	alias sha1 = hash!SHA1;
-	alias sha256 = hash!SHA256;
-	alias sha384 = hash!SHA384;
-	alias sha512 = hash!SHA512;
-	template hash(HashMethod) {
-		auto hash(string hash) @safe pure in {
-			import std.string : removechars;
-			assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
-		} body {
-			import std.digest.digest : digestLength;
-			import std.string : toUpper, format;
-			import std.exception : enforce;
-			enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
-			hashes[HashMethod.stringof] = Hash(hash.toUpper());
-			return this;
-		}
-		public Hash hash(bool skipCompleteCheck = false) pure nothrow {
-			if (HashMethod.stringof !in hashes)
-				hashes[HashMethod.stringof] = Hash();
-			if (skipCompleteCheck || !_content.isNull)
-				hashes[HashMethod.stringof].hash = getHash!HashMethod;
-			return hashes[HashMethod.stringof];
-		}
-		public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
-			Hash output;
-			if (HashMethod.stringof in hashes)
-				output = hashes[HashMethod.stringof];
-			if (skipCompleteCheck || !_content.isNull)
-				output.hash = getHash!HashMethod;
-			return output;
-		}
+	HTTP.Response!T post(T = string)(URL inURL, string data, URLHeaders headers = URLHeaders.init) {
+		return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);	
 	}
-
-	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
-		import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
-		auto hash = makeDigest!HashMethod;
-		hash.put(_content);
-		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
-	}
-	SavedFileInformation saveTo(string dest, bool overwrite = true) {
-		return SavedFileInformation();
-	}
-	void perform(bool ignoreStatus = false) {
-		auto client = curlfactory.spawnInstance(url.Hostname);
-		ubyte[] contentBuffer;
-			import std.digest.sha : toHexString;
-			import std.exception : enforce;
-			import std.base64, std.conv : to;
-			import std.net.curl : CurlException, CurlSeekPos, CurlSeek;
-			scope (exit) {
-				client.onReceiveHeader = null;
-    			client.onReceiveStatusLine = null;
-				client.onSend = null;
-				client.handle.onSeek = null;
-			}
-			client.contentLength = contentLength;
-			bool stopWriting = false;
-			client.onReceive = (ubyte[] data) {
-				if (!stopWriting)
-			    	contentBuffer ~= data;
-			    return data.length;
-			};
-			if (Method == HTTPMethod.POST) {
-				auto remainingData = _POSTData;
-			    client.onSend = delegate size_t(void[] buf)
-			    {
-			    	import std.algorithm : min;
-			        size_t minLen = min(buf.length, remainingData.length);
-			        if (minLen == 0) return 0;
-			        buf[0..minLen] = remainingData[0..minLen];
-					LogDebugV("POSTING %s", remainingData[0..minLen]);
-			        remainingData = remainingData[minLen..$];
-			        return minLen;
-			    };
-			    client.handle.onSeek = delegate(long offset, CurlSeekPos mode)
-			    {
-			        switch (mode)
-			        {
-			            case CurlSeekPos.set:
-			                remainingData = _POSTData[cast(size_t)offset..$];
-			                return CurlSeek.ok;
-			            default:
-			                return CurlSeek.cantseek;
-			        }
-			    };
-			}
-			client.onReceiveHeader = (in char[] key, in char[] value) {
-				if (auto v = key in headers) {
-						*v ~= ", ";
-						*v ~= value;
-				    } else
-						headers[key] = value.idup;
-			};
-			client.connectTimeout(Timeout);
-			client.verifyPeer(!DisablePeerVerification);
-			client.verifyHost(!IgnoreHostCertificate);
-			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { _status = cast(HTTPStatus)line.code; };
-			debug LogTrace("Completed setting curl parameters");
-			uint redirectCount = 0;
-			Exception lastException;
-			client.clearRequestHeaders();
-			foreach (key, value; outHeaders)
-				client.addRequestHeader(key, value);
-			foreach (trial; 0..MaxTries) {
-				stopWriting = false;
-				client.url = url.toString();
-				switch (Method) {
-					case HTTPMethod.GET:
-						client.method = CurlHTTP.Method.get; break;
-					case HTTPMethod.POST:
-						client.method = CurlHTTP.Method.post; break;
-					case HTTPMethod.HEAD:
-						client.method = CurlHTTP.Method.head; break;
-					default: throw new Exception("Unsupported method");
-				}
-				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.Hostname, url.Protocol, outHeaders);
-				try {
-					headers = null;
-					client.perform();
-					stopWriting = true;
-					if ("content-disposition" in headers) {
-						auto disposition = parseDispositionString(headers["content-disposition"]);
-						if (!disposition.Filename.isNull)
-							overriddenFilename = disposition.Filename;
-					}
-					if ("content-md5" in headers)
-						enforce(md5(true) == toHexString(Base64.decode(headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(headers["content-md5"]))));
-					if ("content-length" in headers)
-						enforce(contentBuffer.length == headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
-					if (!expectedSize.isNull)
-						enforce(contentBuffer.length == expectedSize, new HTTPException("Size of data mismatched expected size"));
-					if (guaranteeData)
-						enforce(contentBuffer.length > 0, new HTTPException("No data received"));
-					if (!ignoreStatus) 
-						enforce(_status < 300, new StatusException(_status));
-					if (!md5(true).original.isNull())
-						enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
-					if (!sha1(true).original.isNull())
-						enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
-					_content = contentBuffer;
-					return;
-				} catch (CurlException e) {
-					lastException = e;
-					LogDebugV("%s", e);
-				} catch (StatusException e) {
-					LogDebugV("HTTP %s error", _status);
-					with(HTTPStatus) switch (_status.get()) {
-						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
-							enforce(redirectCount++ < 5, e);
-							url = url.absoluteURL(headers["location"]);
-							if ((_status == MovedPermanently) || (_status == Found) || (_status == SeeOther))
-								Method = HTTPMethod.GET;
-							break;
-						case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
-							break;
-						default: 
-							throw new StatusException(_status);
-					}
-					lastException = e;
-				} catch (HTTPException e) {
-					lastException = e;
-					LogDebugV("%s", e);
-				}
-			}
-			throw lastException;
-	}
-	@property {
-		string content(ContentType = string)() {
-			import std.encoding : transcode;
-			if (_content.isNull())
-				perform();
-			static if (is(ContentType == string)) {
-				return cast(string)_content;
-			} else if (is(ContentType == ubyte[])) {
-				return _content;
-			} else if (!is(ContentType == string)) {
-				string data;
-				transcode(cast(ContentType)_content, data);
-				return data;
-			}
-		}
-		string filename() const pure nothrow {
-			return "";
-		}
-		ushort status() {
-			if (_status.isNull)
-				perform();
-			return _status;
-		}
-		JSONValue json() {
-			import std.string : lastIndexOf;
-			import stdx.data.json;
-			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
-			auto fixedContent = content[0..a+1]; //temporary hack
-			return parseJSONValue(fixedContent);
-		}
-		Document dom() {
-			return new Document(content);
-		}
-		void POSTData(in ubyte[] data) {
-
-		}
-		void POSTData(in string data) {
-
-		}
-		void POSTData(in string[string] data) {
-
-		}
-		bool isComplete() const pure nothrow {
-			return !_content.isNull;
-		}
+	HTTP.Response!T post(T = string)(URL inURL, string[string] data, URLHeaders headers = URLHeaders.init) {
+		return spawn(inURL, headers).post!T(inURL.Path, data, inURL.Params);
 	}
 }
 
@@ -1070,5 +767,5 @@ unittest {
 	assert(resp2.content == "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp1.content == "beep1");
-	version(Old) debug writefln("Spawned %d instances.", httpfactory.spawn(testURL).numInstances);
+	debug writefln("Spawned %d instances.", httpfactory.spawn(testURL).numInstances);
 }
