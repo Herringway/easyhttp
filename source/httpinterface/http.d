@@ -24,7 +24,7 @@ version(Have_loggins) {
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
-public alias RequestType = HTTP.Response!string;
+public alias RequestType = HTTP.Request!string;
 
 ///Paths to search for certificates
 public string[] extraCurlCertSearchPaths = [];
@@ -120,13 +120,14 @@ HTTPFactory httpfactory;
 static this() {
 	httpfactory = HTTPFactory();
 }
-
-struct SavedFileInformation {
-	string path;
-}
+/++
+ + Struct for spawning and reusing requests based on hostname.
+ +/
 struct HTTPFactory {
 	import std.typecons : Nullable;
+	///Path for the file to store cookies in
 	public string cookieJar;
+	///Number of times to retry failed requests
 	public uint retryCount = 5;
 	private static Nullable!string certPath;
 	static this() @safe {
@@ -143,7 +144,7 @@ struct HTTPFactory {
 			}
 	}
 	private HTTP[string] activeHTTP;
-	HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
+	private HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
 		assert(inURL.hostname, "Missing hostname in provided URL");
 		assert((inURL.protocol != URL.Proto.Unknown) && (inURL.protocol != URL.Proto.None) && (inURL.protocol != URL.Proto.Same), "Bad protocol for provided URL");
 	} body {
@@ -158,26 +159,39 @@ struct HTTPFactory {
 			LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
 		return activeHTTP[inURL.hostname];
 	}
-	HTTP.Response!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
+	/++
+	 + Spawns a GET request for the given URL.
+	 +/
+	HTTP.Request!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 		return spawn(inURL, headers).get!T(inURL);
 	}
-	HTTP.Response!T post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) {
+	/++
+	 + Spawns a POST request for the given URL.
+	 +/
+	HTTP.Request!T post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) {
 		return spawn(inURL, headers).post!T(inURL, data);
 	}
 }
-
+/++
+ + Creates HTTP Requests for a specified hostname.
+ +/
 class HTTP {
 	import std.net.curl : CurlException, CurlHTTP = HTTP;
 	import httpinterface.uestruct : isURLEncodable, urlEncodeStruct;
+	///URL that spawned this class
 	public const(URL) url;
-
+	///Number of times to retry failed requests
 	public uint retryCount = 5;
 
 	private CurlHTTP httpClient;
-	URLHeaders headers;
+	private URLHeaders headers;
 	private string _cookiepath;
 	private bool peerVerification = false;
+	///Number of HTTP instances spawned
 	debug static ulong numInstances = 0;
+	/++
+	 + Constructor that takes a URL and optional headers.
+	 +/
 	this(in URL inURL, URLHeaders reqHeaders = null) {
 		import etc.c.curl : LIBCURL_VERSION;
 		retryCount = defaultMaxTries;
@@ -196,6 +210,9 @@ class HTTP {
 		scope (failure) return;
 		httpClient.shutdown();
 	}
+	/++
+	 + Path for the file to store cookies in.
+	 +/
 	string cookieJar(FileSystemPath path) @property in {
 		import std.path : dirName;
 		import std.file : isDir;
@@ -207,10 +224,13 @@ class HTTP {
 		httpClient.setCookieJar(_cookiepath);
 		return _cookiepath;
 	}
+	///ditto
 	string cookieJar() @property @safe pure @nogc nothrow {
 		return _cookiepath;
 	}
-	deprecated alias CookieJar = cookieJar;
+	/++
+	 + Path to the system's certificate store.
+	 +/
 	string certificates(FileSystemPath path) {
 		import std.exception : enforce;
 		import std.file : exists;
@@ -220,14 +240,16 @@ class HTTP {
 		peerVerification = true;
 		return path;
 	}
-	deprecated alias Certificates = certificates;
+	/++
+	+ Prepares an HTTP GET request.
+	+/
 	auto get(T = string)(URL inURL) {
-		auto output = Response!(T)(&httpClient, url.absoluteURL(inURL), peerVerification);
+		auto output = Request!(T)(&httpClient, url.absoluteURL(inURL), peerVerification);
 		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
-		LogDebugV("Spawning GET Response for host %s, path %s", output.url.hostname, output.url.path);
+		LogDebugV("Spawning GET Request for host %s, path %s", output.url.hostname, output.url.path);
 		return output;
 	}
 	/++
@@ -254,7 +276,7 @@ class HTTP {
 		import std.string : representation;
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
-		auto output = Response!T(&httpClient, url, peerVerification);
+		auto output = Request!T(&httpClient, url, peerVerification);
 		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.post;
 		output.onReceive = null;
@@ -288,13 +310,16 @@ class HTTP {
 	                return CurlSeek.cantseek;
 	        }
 	    };
-		LogDebugV("Spawning POST Response for host %s, path %s", output.url.hostname, output.url.path);
+		LogDebugV("Spawning POST Request for host %s, path %s", output.url.hostname, output.url.path);
 		return output;
 	}
 	override string toString() @safe const {
 		return url.toString();
 	}
-	struct Response(ContentType) {
+	/++
+	 + An HTTP Request.
+	 +/
+	struct Request(ContentType) {
 		private struct Hash {
 			Nullable!string hash;
 			Nullable!string original;
@@ -314,7 +339,7 @@ class HTTP {
 			string token;
 			string tokenSecret;
 		}
-		string bearerToken;
+		private string bearerToken;
 		private const(ubyte)[] _content;
 		private URLHeaders _headers;
 		private URLHeaders outHeaders;
@@ -322,14 +347,18 @@ class HTTP {
 		private CurlHTTP* client;
 		private bool fetched = false;
 		private bool checkNoContent = false;
+		///Maximum number of tries to retry the request
 		uint maxTries;
+		///Maximum time to wait for the request to complete
 		Duration timeout = dur!"minutes"(5);
+		///The URL being requested
 		URL url;
-		size_t delegate(ubyte[]) onReceive;
-		CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
-		size_t delegate(void[] buf) onSend;
+		package size_t delegate(ubyte[]) onReceive;
+		package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
+		package size_t delegate(void[] buf) onSend;
+		///Length of the data in the body
 		uint contentLength;
-		CurlHTTP.Method method;
+		package CurlHTTP.Method method;
 		private OAuthParams oAuthParams;
 		///Whether or not to ignore errors in the server's SSL certificate
 		bool ignoreHostCert = false;
@@ -350,14 +379,23 @@ class HTTP {
 			client = inClient;
 			url = initial;
 		}
+		/++
+		 + Whether or not the request has been completed successfully.
+		 +/
 		bool isComplete() @property const @safe pure nothrow @nogc {
 			return fetched;
 		}
+		/++
+		 + Reset the state of this request.
+		 +/
 		void reset() nothrow pure @safe {
 			_content = [];
 			_headers = null;
 			fetched = false;
 		}
+		/++
+		 + The default filename for the file being requested.
+		 +/
 		string filename() @property nothrow const pure {
 			if (!overriddenFilename.isNull)
 				return overriddenFilename;
@@ -367,9 +405,28 @@ class HTTP {
 			scope(failure) return false;
 			return !(cast()*client).isStopped();
 		}
+		/++
+		 + Whether this request is still valid or not.
+		 +/
 		bool isValid() @property nothrow const {
 			return _isValid;
 		}
+		/++
+		 + Information about a file saved with the saveTo function.
+		 +/
+		struct SavedFileInformation {
+			///Path that was used for actually saving the file.
+			string path;
+		}
+		/++
+		 + Saves the body of this request to a local path.
+		 +
+		 + Will not overwrite existing files unless overwrite is set.
+		 +
+		 + Params:
+		 +  dest = default destination for the file to be saved
+		 +  overwrite = whether or not to overwrite existing files
+		 +/
 		SavedFileInformation saveTo(string dest, bool overwrite = true) {
 			auto output = SavedFileInformation();
 			import std.file : exists, mkdirRecurse;
@@ -412,22 +469,42 @@ class HTTP {
 			}
 			return output;
 		}
+		/++
+		 + The HTTP status code for a completed request.
+		 +
+		 + Completes the request if not already done.
+		 +/
 		HTTPStatus status() @property {
 			if (!fetched)
 				fetchContent(true);
 			return statusCode;
 		}
+		/++
+		 + Whether or not this request should fail upon receiving an empty body.
+		 +/
 		ref bool guaranteedData() @property @safe pure nothrow @nogc {
 			return checkNoContent;
 		}
+		/++
+		 + Print debugging information.
+		 +/
 		void verbose(bool val) @property {
 			client.verbose = val;
 		}
-		deprecated alias AddHeader = addHeader;
+		/++
+		 + Adds an outgoing header to the request.
+		 +
+		 + No effect on completed requests.
+		 +/
 		void addHeader(string key, string val) @safe pure nothrow {
 			outHeaders[key] = val;
 		}
 		enum OAuthMethod {Header, URL, Form }
+		/++
+		 + Adds an OAuth bearer token to the request.
+		 +
+		 + Valid methods are OAuthMethod.Header.
+		 +/
 		void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
 			bearerToken = token;
 			if (method == OAuthMethod.Header)
@@ -459,18 +536,26 @@ class HTTP {
 			LogDebugV("Adding header: Authorization: %s", "OAuth " ~ authString.join(", "));
 			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
 		}+/
+		/++
+		 + The expected size of the body if available.
+		 +
+		 + Null if no size is known.
+		 +/
 		ref Nullable!uint expectedSize() @safe nothrow pure @nogc @property {
 			return sizeExpected;
 		}
 		import std.digest.md : MD5;
 		import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
-		Hash[string] hashes;
+		private Hash[string] hashes;
 		alias md5 = hash!MD5;
 		alias sha1 = hash!SHA1;
 		alias sha256 = hash!SHA256;
 		alias sha384 = hash!SHA384;
 		alias sha512 = hash!SHA512;
-		template hash(HashMethod) {
+		private template hash(HashMethod) {
+			/++
+			 + Sets an expected hash for the request.
+			 +/
 			void hash(string hash) pure in {
 				import std.string : removechars;
 				assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
@@ -481,6 +566,11 @@ class HTTP {
 				enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
 				hashes[HashMethod.stringof] = Hash(hash.toUpper());
 			}
+			/++
+			 + Gets the hash of the request body.
+			 +
+			 + Empty if request is incomplete.
+			 +/
 			public Hash hash(bool skipCompleteCheck = false) pure nothrow {
 				if (HashMethod.stringof !in hashes)
 					hashes[HashMethod.stringof] = Hash();
@@ -488,6 +578,7 @@ class HTTP {
 					hashes[HashMethod.stringof].hash = getHash!HashMethod;
 				return hashes[HashMethod.stringof];
 			}
+			///ditto
 			public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
 				Hash output;
 				if (HashMethod.stringof in hashes)
@@ -503,16 +594,18 @@ class HTTP {
 			hash.put(_content);
 			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 		}
+		/++
+		 + Whether or not to ignore errors in the server's SSL certificate.
+		 +/
 		ref bool ignoreHostCertificate() @property @nogc @safe pure nothrow {
 			return ignoreHostCert;
 		}
+		/++
+		 + Whether or not to validate the peer named in the server's SSL cert.
+		 +/
 		ref bool peerVerification() @property @nogc @safe pure nothrow {
 			return verifyPeer;
 		}
-		deprecated alias IgnoreHostCertificate = ignoreHostCertificate;
-		deprecated alias DisablePeerVerification = peerVerification;
-		deprecated alias MaxTries = maxTries;
-		deprecated alias Timeout = timeout;
 		/++
 		 + Returns body of response as a string.
 		 +/
@@ -681,7 +774,6 @@ struct ContentDisposition {
 	import std.typecons : Nullable;
 	///Filename extracted from the header, if available
 	Nullable!string filename;
-	deprecated alias Filename = filename;
 }
 /++
  + Parses a content-disposition header's contents.
