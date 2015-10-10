@@ -1,6 +1,6 @@
-module httpinterface.http;
+module easyhttp.http;
 
-private import httpinterface.fs, httpinterface.url;
+private import easyhttp.fs, easyhttp.url;
 private import std.utf : UTFException;
 public import arsd.dom : Document, Element;
 public import siryul : Optional, AsString, SiryulizeAs;
@@ -177,7 +177,7 @@ struct HTTPFactory {
  +/
 class HTTP {
 	import std.net.curl : CurlException, CurlHTTP = HTTP;
-	import httpinterface.uestruct : isURLEncodable, urlEncodeStruct;
+	import easyhttp.uestruct : isURLEncodable, urlEncodeStruct;
 	///URL that spawned this class
 	public const(URL) url;
 	///Number of times to retry failed requests

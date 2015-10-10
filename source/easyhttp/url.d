@@ -1,4 +1,4 @@
-module httpinterface.url;
+module easyhttp.url;
 
 alias URLParameters = string[][string];
 
@@ -68,7 +68,7 @@ unittest {
  + A Uniform Resource Locator.
  +/
 struct URL {
-	import httpinterface.uestruct : isURLEncodable, urlEncodeStructInternal;
+	import easyhttp.uestruct : isURLEncodable, urlEncodeStructInternal;
 	alias Proto = ProtoEnum;
 	///Parameters
 	URLParameters params;

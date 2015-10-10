@@ -1,4 +1,4 @@
-module httpinterface.uestruct;
+module easyhttp.uestruct;
 
 /++
  + URL-encodes a data structure.

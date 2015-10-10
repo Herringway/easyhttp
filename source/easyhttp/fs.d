@@ -1,4 +1,4 @@
-module httpinterface.fs;
+module easyhttp.fs;
 
 
 version(Windows) private enum maxPath = 260;

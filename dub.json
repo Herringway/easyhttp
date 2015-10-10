@@ -1,6 +1,6 @@
 {
-	"name": "curloo",
-	"description": "An object-oriented interface to libcurl.",
+	"name": "easyhttp",
+	"description": "An easy-to-use HTTP client library.",
 	"copyright": "Copyright © 2014, Cameron",
 	"authors": ["Cameron \"Herringway\" Ross"],
 	"dependencies": {

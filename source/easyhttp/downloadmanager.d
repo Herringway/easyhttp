@@ -1,6 +1,6 @@
-module httpinterface.downloadmanager;
+module easyhttp.downloadmanager;
 version(downloadmanager) {
-	import httpinterface.http;
+	import easyhttp.http;
 
 	import std.concurrency, std.functional;
 
