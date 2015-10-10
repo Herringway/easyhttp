@@ -8,4 +8,9 @@ cookiejar.txt
 *.lib
 *.def
 *.log
+
+#various tool files
 dub.selections.json
+docs.json
+docs
+githash.txt
