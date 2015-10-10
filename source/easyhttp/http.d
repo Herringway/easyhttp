@@ -428,9 +428,10 @@ class HTTP {
 		 +  overwrite = whether or not to overwrite existing files
 		 +/
 		SavedFileInformation saveTo(string dest, bool overwrite = true) {
-			auto output = SavedFileInformation();
 			import std.file : exists, mkdirRecurse;
 			import std.path : dirName;
+			import std.stdio : File;
+			auto output = SavedFileInformation();
 			if (!overwrite)
 				while (exists(dest))
 					dest = duplicateName(dest);
@@ -438,35 +439,18 @@ class HTTP {
 			if (!exists(dest.dirName()))
 				mkdirRecurse(dest.dirName());
 			dest = dest.fixPath();
-			version(Windows) {
-				import std.stream : File, FileMode;
-				auto outFile = new File(dest, FileMode.OutNew);
-				scope(exit) 
-					if (outFile.isOpen) {
-						outFile.flush();
-						outFile.close();
-					}
-				onReceive = (ubyte[] data) { _content ~= data; outFile.write(data); return data.length; };
-				outFile.seekSet(0);
-				if (!fetched)
-					fetchContent();
-				else
-					outFile.write(_content);
-			} else {
-				import std.stdio : File;
-				auto outFile = File(dest, "wb");
-				scope(exit) 
-					if (outFile.isOpen) {
-						outFile.flush();
-						outFile.close();
-					}
-				onReceive = (ubyte[] data) { _content ~= data; outFile.rawWrite(data); return data.length; };
-				outFile.seek(0);
-				if (!fetched)
-					fetchContent();
-				else
-					outFile.rawWrite(_content);
-			}
+			auto outFile = File(dest, "wb");
+			scope(exit) 
+				if (outFile.isOpen) {
+					outFile.flush();
+					outFile.close();
+				}
+			onReceive = (ubyte[] data) { _content ~= data; outFile.rawWrite(data); return data.length; };
+			outFile.seek(0);
+			if (!fetched)
+				fetchContent();
+			else
+				outFile.rawWrite(_content);
 			return output;
 		}
 		/++
@@ -541,7 +525,7 @@ class HTTP {
 		 +
 		 + Null if no size is known.
 		 +/
-		ref Nullable!uint expectedSize() @safe nothrow pure @nogc @property {
+		ref Nullable!size_t expectedSize() @safe nothrow pure @nogc @property {
 			return sizeExpected;
 		}
 		import std.digest.md : MD5;
