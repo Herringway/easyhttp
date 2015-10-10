@@ -1,19 +1,32 @@
 module httpinterface.fs;
 
 
-version(Windows) int maxPath = 260;
-version(Posix) int maxPath = 255;
+version(Windows) private enum maxPath = 260;
+version(Posix) private enum maxPath = 255;
 
 alias FileSystemPath = string;
-
+/++
+ + Fixes up invalid paths.
+ +
+ + Removes characters from paths that are not allowed in filenames on the host
+ + operating system. Filenames are also trimmed to fit the maximum path length.
+ + Additionally, paths are converted to UNC format on Windows.
+ +
+ + Invalid characters on Windows include "?<>|*:
+ +
+ + Only \0 is not allowed in POSIX paths.
+ +
+ + Params:
+ +  inPath = path that may contain errors
+ +/
 FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 	assert(inPath != "", "No path");
 } out(result) {
-	import std.path;
+	import std.path : isValidPath;
 	assert(result.isValidPath(), "Invalid path from fixPath("~inPath~")");
 } body {
 	FileSystemPath UNCize(FileSystemPath input) pure @safe {
-		import std.path;
+		import std.path : absolutePath, buildNormalizedPath;
 		FileSystemPath dest = input;
 		version(Windows) {
 			dest = dest.absolutePath().buildNormalizedPath();
@@ -24,7 +37,7 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 	}
 	import std.algorithm : min;
 	import std.string : removechars;
-	import std.path;
+	import std.path : absolutePath, dirName, extension, baseName, buildNormalizedPath;
 	FileSystemPath dest = inPath;
 	try {
 		version(Windows) {
@@ -52,6 +65,15 @@ unittest {
 		fixPath(path);
 	version(Windows) assert(fixPath(`\\?\C:\windows`) == `\\?\C:\windows`);
 }
+/++
+ + Creates a monotonically-increasing filename.
+ +
+ + Files without duplicate counts will have (2) added before the extension. If
+ + the count exists, it will be incremented.
+ +
+ + Params:
+ +  oldFilename = original filename to add/increase duplicate count for
+ +/
 @property string duplicateName(string oldFilename) {
 	import std.string : format;
 	import std.format : formattedRead;
@@ -62,7 +84,7 @@ unittest {
 		auto noext = stripExtension(oldFilename);
 		formattedRead(noext, "%s(%s)", &dupePrefix, &dupeid);
 		dupeid++;
-	} catch {
+	} catch(Exception) {
 		dupePrefix = stripExtension(oldFilename);
 		dupeid = 2;
 	}

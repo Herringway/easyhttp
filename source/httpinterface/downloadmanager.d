@@ -5,15 +5,15 @@ import httpinterface.http;
 import std.concurrency, std.functional;
 
 struct DownloadRequest {
-	RequestType Request;
-	string DestPath;
-	void delegate(DownloadRequest request, QueueDetails qd) PostDownload;
-	void delegate(DownloadRequest request, QueueDetails qd) PreDownload;
+	RequestType request;
+	string destPath;
+	void delegate(DownloadRequest request, QueueDetails qd) postDownload;
+	void delegate(DownloadRequest request, QueueDetails qd) preDownload;
 	void delegate(DownloadRequest request, QueueDetails qd) onError;
 }
 struct QueueDetails {
 	ulong ID;
-	ulong Count;
+	ulong count;
 }
 struct DownloadError {
 	size_t ID;
@@ -21,42 +21,42 @@ struct DownloadError {
 }
 struct QueuedDownload {
 	size_t ID;
-	RequestType Request;
-	string DestPath;
+	RequestType request;
+	string destPath;
 }
 struct DownloadManager {
-	uint QueueCount = 4;
-	private DownloadRequest[] Queue;
-	void delegate(DownloadRequest request, QueueDetails qd) PostDownloadFunction;
-	void delegate(DownloadRequest request, QueueDetails qd) PreDownloadFunction;
+	uint queueCount = 4;
+	private DownloadRequest[] queue;
+	void delegate(DownloadRequest request, QueueDetails qd) postDownloadFunction;
+	void delegate(DownloadRequest request, QueueDetails qd) preDownloadFunction;
 	void add(DownloadRequest request) nothrow {
-		Queue ~= request;
+		queue ~= request;
 	}
 	void execute() nothrow {
 		scope(failure) return;
-		auto downloaders = new Tid[](QueueCount);
+		auto downloaders = new Tid[](queueCount);
 		foreach (ref downloader; downloaders)
 			downloader = spawn(&downloadRoutine, thisTid);
-		foreach (id, item; Queue) {
+		foreach (id, item; queue) {
 			receive(
 				(bool isReady, Tid child) {
 					if (isReady) {
-						if (PreDownloadFunction)
-							PreDownloadFunction(item, QueueDetails(id, Queue.length));
-						if (item.PreDownload)
-							item.PreDownload(item, QueueDetails(id, Queue.length));
-					//	send(child, immutable QueuedDownload(id, item.Request, item.DestPath));
+						if (preDownloadFunction)
+							preDownloadFunction(item, QueueDetails(id, queue.length));
+						if (item.preDownload)
+							item.preDownload(item, QueueDetails(id, queue.length));
+					//	send(child, immutable QueuedDownload(id, item.request, item.destPath));
 					}
 				},
 				(size_t idSuccess) {
-					if (PostDownloadFunction)
-						PostDownloadFunction(item, QueueDetails(idSuccess, Queue.length));
-					if (Queue[idSuccess].PostDownload)
-						Queue[idSuccess].PostDownload(item, QueueDetails(idSuccess, Queue.length));
+					if (postDownloadFunction)
+						postDownloadFunction(item, QueueDetails(idSuccess, queue.length));
+					if (queue[idSuccess].postDownload)
+						queue[idSuccess].postDownload(item, QueueDetails(idSuccess, queue.length));
 				},
 				(DownloadError error) {
-					if (Queue[error.ID].onError)
-						Queue[error.ID].onError(item, QueueDetails(error.ID, Queue.length));
+					if (queue[error.ID].onError)
+						queue[error.ID].onError(item, QueueDetails(error.ID, queue.length));
 				}
 			);
 		}
