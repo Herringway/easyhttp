@@ -206,10 +206,6 @@ class HTTP {
 			headers["User-Agent"] = "curlOO ("~LIBCURL_VERSION~")";
 		debug numInstances++;
 	}
-	~this() nothrow {
-		scope (failure) return;
-		httpClient.shutdown();
-	}
 	/++
 	 + Path for the file to store cookies in.
 	 +/
