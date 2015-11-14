@@ -177,7 +177,7 @@ struct HTTPFactory {
  +/
 class HTTP {
 	import std.net.curl : CurlException, CurlHTTP = HTTP;
-	import easyhttp.uestruct : isURLEncodable, urlEncodeStruct;
+	import easyhttp.urlencoding : isURLEncodable, urlEncode;
 	///URL that spawned this class
 	public const(URL) url;
 	///Number of times to retry failed requests
@@ -256,16 +256,7 @@ class HTTP {
 	 +  inData = Data being POSTed
 	 +/
 	auto post(T = string, U)(URL url, U inData) if (isURLEncodable!U) {
-		return post!T(url, urlEncodeStruct(inData));
-	}
-	///ditto
-	auto post(T = string)(URL url, POSTParams inData) {
-		import std.uri : encode;
-		import std.string : join;
-		string[] newData;
-		foreach (key, val; inData)
-			newData ~= encode(key) ~ "=" ~ encode(val);
-		return post!T(url, newData.join("&"));
+		return post!T(url, urlEncode(inData));
 	}
 	///ditto
 	auto post(T = string)(URL url, POSTData inData) {
@@ -398,8 +389,11 @@ class HTTP {
 			return url.fileName;
 		}
 		private bool _isValid() @property nothrow const {
-			scope(failure) return false;
-			return !(cast()*client).isStopped();
+			try {
+				return !(cast()*client).isStopped();
+			} catch (Exception) {
+				return false;
+			}
 		}
 		/++
 		 + Whether this request is still valid or not.
@@ -667,7 +661,7 @@ class HTTP {
 				    	_content ~= data;
 				    return data.length;
 				};
-			else 
+			else
 				client.onReceive = onReceive;
 			client.handle.onSeek = onSeek;
 			client.onSend = onSend;
@@ -734,7 +728,7 @@ class HTTP {
 							break;
 						case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
 							break;
-						default: 
+						default:
 							throw new StatusException(statusCode);
 					}
 					lastException = e;
