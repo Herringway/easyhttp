@@ -2,49 +2,54 @@ module easyhttp.hmac;
 
 private import std.digest.md : MD5, isDigest;
 private import std.digest.sha : SHA1;
+static if (!__traits(compiles, std.digest.hmac.hmac!SHA1([]))) {
+	/++
+	 + Basic Hash Message Authentication Code algorithm.
+	 +
+	 + HMACs, like hashes, are used to verify the integrity of a given message.
+	 + Unlike standard hashes, HMACs also provide a guarantee of authenticity, since
+	 + it requires a shared key to be useful.
+	 +
+	 + Aside from the authenticity guarantee, HMACs are effectively hashes and will
+	 + be indistinguishable from them.
+	 +
+	 + Params:
+	 + Hash = The underlying hash algorithm (see std.digest.digest)
+	 + inKey = Key used to encode the hash
+	 + data = The data to be hashed
+	 +/
+	public ubyte[] HMAC(Hash)(string inKey, string data) @safe pure nothrow if (isDigest!Hash) {
+		import std.string : representation;
+		ubyte[] key = inKey.representation.dup;
+		if (key.length > 64) {
+			Hash hash;
+			hash.start();
+			hash.put(key);
+			key = hash.finish();
+		}
+		if (key.length < 64)
+			key.length = 64;
+
+		assert(key.length == 64);
+		auto ikey = key;
+		auto okey = key.dup;
+		ikey[] ^= 0x36; okey[] ^= 0x5C;
+
+		assert(ikey != okey);
+
+		Hash ihash, ohash;
+		ihash.start(); ohash.start();
+		ihash.put(ikey~data.representation);
+		ohash.put(okey~ihash.finish());
+		ikey[] = 0; okey[] = 0; //clear keys.
+		return ohash.finish().dup;
+	}
+} else {
+	private import std.digest.hmac;
+	alias HMAC = hmac;
+}
 public alias HMAC_SHA1 = HMAC!SHA1;
 public alias HMAC_MD5 = HMAC!MD5;
-/++
- + Basic Hash Message Authentication Code algorithm.
- +
- + HMACs, like hashes, are used to verify the integrity of a given message.
- + Unlike standard hashes, HMACs also provide a guarantee of authenticity, since
- + it requires a shared key to be useful.
- +
- + Aside from the authenticity guarantee, HMACs are effectively hashes and will
- + be indistinguishable from them.
- +
- + Params:
- + Hash = The underlying hash algorithm (see std.digest.digest)
- + inKey = Key used to encode the hash
- + data = The data to be hashed
- +/
-public ubyte[] HMAC(Hash)(string inKey, string data) @safe pure nothrow if (isDigest!Hash) {
-	import std.string : representation;
-	ubyte[] key = inKey.representation.dup;
-	if (key.length > 64) {
-		Hash hash;
-		hash.start();
-		hash.put(key);
-		key = hash.finish();
-	}
-	if (key.length < 64)
-		key.length = 64;
-
-	assert(key.length == 64);
-	auto ikey = key;
-	auto okey = key.dup;
-	ikey[] ^= 0x36; okey[] ^= 0x5C;
-
-	assert(ikey != okey);
-
-	Hash ihash, ohash;
-	ihash.start(); ohash.start();
-	ihash.put(ikey~data.representation); 
-	ohash.put(okey~ihash.finish());
-	ikey[] = 0; okey[] = 0; //clear keys.
-	return ohash.finish().dup;
-}
 ///Wikipedia-provided example tests
 unittest {
 	import std.digest.md : MD5, toHexString;
