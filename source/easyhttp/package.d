@@ -4,6 +4,6 @@ public {
 	import easyhttp.url;
 	import easyhttp.fs;
 	import easyhttp.hmac;
-	import easyhttp.uestruct;
+	import easyhttp.urlencoding;
 	import easyhttp.http;
 }
