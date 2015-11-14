@@ -33,7 +33,6 @@ version(downloadmanager) {
 			queue ~= request;
 		}
 		void execute() nothrow {
-			scope(failure) return;
 			auto downloaders = new Tid[](queueCount);
 			foreach (ref downloader; downloaders)
 				downloader = spawn(&downloadRoutine, thisTid);
