@@ -18,19 +18,18 @@ import std.stdio;
  +/
 Proto urlProtocol(in string url) @property pure @safe {
 	import std.string : toLower;
-	if (url.length >= 6) {
-		if (url[0..5].toLower() == "http:")
-			return Proto.HTTP;
-		else if (url[0..5].toLower() == "https")
-			return Proto.HTTPS;
-		else if (url[0..3].toLower() == "ftp")
-			return Proto.FTP;
-	} 
-	if ((url.length >= 2) && (url[0..2] == "//"))
+	import std.algorithm : startsWith;
+	if (url.startsWith!"toLower(a) == b"("http:"))
+		return Proto.HTTP;
+	else if (url.startsWith!"toLower(a) == b"("https:"))
+		return Proto.HTTPS;
+	else if (url.startsWith!"toLower(a) == b"("ftp:"))
+		return Proto.FTP;
+	else if (url.startsWith("//"))
 		return Proto.Same;
-	else if ((url.length >= 1) && url[0] == '/')
+	else if (url.startsWith("/"))
 		return Proto.None;
-	else if ((url.length >= 1) && url[0] == '.')
+	else if (url.startsWith("."))
 		return Proto.None;
 	return Proto.Unknown;
 }
@@ -41,6 +40,9 @@ unittest {
 	assert("http://example".urlProtocol == Proto.HTTP);
 	assert("https://example".urlProtocol == Proto.HTTPS);
 	assert("ftp://example".urlProtocol == Proto.FTP);
+	assert("HTTP://example".urlProtocol == Proto.HTTP);
+	assert("HTTPS://example".urlProtocol == Proto.HTTPS);
+	assert("FTP://example".urlProtocol == Proto.FTP);
 }
 /++
  + Gets the hostname for the given protocol.
@@ -68,7 +70,7 @@ unittest {
  + A Uniform Resource Locator.
  +/
 struct URL {
-	import easyhttp.uestruct : isURLEncodable, urlEncodeStructInternal;
+	import easyhttp.urlencoding : isURLEncodable, urlEncodeInternal;
 	alias Proto = ProtoEnum;
 	///Parameters
 	URLParameters params;
@@ -79,90 +81,83 @@ struct URL {
 	///Address for some resource on the server
 	string path;
 	/++
-	 + Basic URL constructor
+	 + Constructor that allows for parameters to be constructed from any
+	 + encodable struct. Order is not guaranteed to be preserved.
 	 +/
-	this(Proto inProtocol, string inHostname, string inPath, URLParameters inParams = URLParameters.init) @safe pure {
-		this.protocol = inProtocol;
-		this.hostname = inHostname;
-		this.path = inPath;
-		this.params = inParams;
+	this(T)(Proto inProtocol, string inHostname, string inPath, T inParams) if (isURLEncodable!T) {
+		import std.uri : decodeComponent;
+		this(inProtocol, inHostname, inPath);
+		foreach (key, values; urlEncodeInternal(inParams))
+			foreach (value; values)
+				this.params[decodeComponent(key)] ~= decodeComponent(value);
 	}
 	/++
-	 + Constructor that allows for parameters to be constructed from any
-	 + encodable struct.
+	 + Basic constructor with no parameters.
 	 +/
-	this(T)(Proto inProtocol, string inHostname, string inPath, T inParams) @safe pure if (isURLEncodable!T) {
+	this(Proto inProtocol, string inHostname, string inPath) {
 		this.protocol = inProtocol;
 		this.hostname = inHostname;
 		this.path = inPath;
-		this.params = urlEncodeStructInternal(inParams);
 	}
 	/++
 	 + Constructor for URL strings
 	 +/
-	this(URLString str, URLParameters inParams = URLParameters.init) @safe {
-		auto u = splitURL(str, inParams);
-		this.protocol = u.protocol;
-		this.hostname = u.hostname;
-		this.path = u.path;
-		this.params = u.params;
+	this(T)(URLString str, T inParams) if (isURLEncodable!T) {
+		import std.uri : decodeComponent;
+		this(str);
+		foreach (key, values; urlEncodeInternal(inParams)) {
+			this.params[decodeComponent(key)] = [];
+			foreach (value; values)
+				this.params[decodeComponent(key)] ~= decodeComponent(value);
+		}
 	}
-	private static auto splitURL(URLString str, URLParameters inParams = URLParameters.init) @safe {
+	///ditto
+	this(URLString str) @safe {
 		import std.array : replace;
 		import std.algorithm : find;
 		import std.string : toLower, split, join;
 		import std.uri : decode;
-		URL url;
-		url.protocol = str.urlProtocol;
+		this.protocol = str.urlProtocol;
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
-			url.hostname = getHostname(str, url.protocol);
+			this.hostname = getHostname(str, this.protocol);
 			//Get Path
-			if (url.protocol == Proto.Unknown)
-				url.path = splitComponents[0..$].join("/");
-			else if (url.protocol == Proto.None)
-				url.path = splitComponents[0..$].join("/");
+			if (this.protocol == Proto.Unknown)
+				this.path = splitComponents[0..$].join("/");
+			else if (this.protocol == Proto.None)
+				this.path = splitComponents[0..$].join("/");
 			else
-				url.path = splitComponents[3..$].join("/");
-			
-			auto existingParameters = url.path.find("?");
+				this.path = splitComponents[3..$].join("/");
+
+			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
 				foreach (arg; existingParameters[1..$].split("&")) {
 					auto splitArg = arg.split("=");
 					() @trusted {
 						if (splitArg.length > 1)
-							url.params[decode(splitArg[0].replace("+", " "))] = [decode(splitArg[1].replace("+", " "))];
+							this.params[decode(splitArg[0].replace("+", " "))] = [decode(splitArg[1].replace("+", " "))];
 						else
-							url.params[decode(arg.replace("+", " "))] = [""];
+							this.params[decode(arg.replace("+", " "))] = [""];
 					}();
 				}
-				url.path = url.path.split("?")[0];
+				this.path = this.path.split("?")[0];
 			}
 		}
-		foreach (k,v; inParams)
-			url.params[k] = v;
-		return url;
 	}
-	deprecated alias Filename = fileName;
 	/++
 	 + The filename for the URL, with nothing else.
 	 +/
 	@property string fileName() nothrow const pure @safe {
 		import std.string : split;
+		if (path.split("/").length == 0)
+			return "";
 		return path.split("/")[$-1];
 	}
 	/++
 	 + Returns a new URL with the set of parameters specified.
 	 +/
-	URL withParams(URLParameters newParams) @safe pure {
-		return URL(protocol, hostname, path, newParams);
-	}
-	///ditto
-	URL withParams(string[string] inParams) @safe pure {
-		string[][string] newParams;
-			foreach (key, value; inParams)
-				newParams[key] = [value];
-		return URL(protocol, hostname, path, newParams);
+	URL withParams(T)(T inParams) if (isURLEncodable!T) {
+		return URL(protocol, hostname, path, inParams);
 	}
 	/++
 	 + Transforms the parameters for this URL to a URL-encoded string.
@@ -171,15 +166,18 @@ struct URL {
 		import std.uri : encode;
 		import std.string : format, join, replace;
 		if (params == null) return "";
-		scope(failure) return "";
 		string[] parameterPrintable;
-		foreach (parameter, value; params)
-			foreach (subvalue; value) {
-				if (subvalue == "")
-					parameterPrintable ~= parameter.encode().replace(":", "%3A");
-				else
-					parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A"), subvalue.encode().replace(":", "%3A"));
-			}
+		try {
+			foreach (parameter, value; params)
+				foreach (subvalue; value) {
+					if (subvalue == "")
+						parameterPrintable ~= parameter.encode().replace(":", "%3A");
+					else
+						parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A"), subvalue.encode().replace(":", "%3A"));
+				}
+		} catch (Exception e) {
+			return "";
+		}
 		return "?"~parameterPrintable.join("&");
 	}
 	/++
@@ -188,7 +186,7 @@ struct URL {
 	 + Params:
 	 +  urlB = URL to transform
 	 +/
-	URL absoluteURL(in URL urlB) const @safe {
+	URL absoluteURL(in URL urlB) const {
 		import std.string : split, join;
 		import std.conv : to;
 		Proto ProtoCopy = protocol;
@@ -213,7 +211,11 @@ struct URL {
 		return URL(ProtoCopy, HostnameCopy, PathCopy ~ "/" ~ urlB.path, ParamsCopy);
 	}
 	///ditto
-	URL absoluteURL(string urlB, URLParameters params = null) const @safe {
+	URL absoluteURL(string urlB) const {
+		return absoluteURL(URL(urlB));
+	}
+	///ditto
+	URL absoluteURL(T)(string urlB, T params) const if (isURLEncodable!T) {
 		return absoluteURL(URL(urlB, params));
 	}
 	/++
@@ -236,7 +238,7 @@ struct URL {
 			if (paramString() != "") {
 				if (path == path.init)
 					output ~= "/";
-				output ~= paramString();	
+				output ~= paramString();
 			}
 		}
 		return output;
@@ -252,6 +254,15 @@ unittest {
 	assert(URL("http://url.example").toString() == "http://url.example", "Simple complete URL (no ending slash) failure");
 	assert(URL("something").toString() == "something", "Path-only relative URL recreation failure");
 	assert(URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
+}
+unittest {
+	struct Test {
+		string a;
+	}
+	assert(URL("http://url.example/", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
+	assert(URL("http://url.example/", ["a":["b"]]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
+	assert(URL("http://url.example/", Test("b")).toString() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
+	assert(URL("http://url.example/?a=c", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 }
 unittest {
 	assert(URL("http://url.example").protocol == Proto.HTTP, "HTTP detection failure");
