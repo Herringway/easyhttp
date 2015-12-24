@@ -150,13 +150,11 @@ struct HTTPFactory {
 	} body {
 		LogDebugV("Spawning...%s", inURL);
 		if (inURL.hostname !in activeHTTP) {
-			LogDebugV("Spawning new HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
 			activeHTTP[inURL.hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.hostname].cookieJar = cookieJar;
 			if (!certPath.isNull)
 				activeHTTP[inURL.hostname].certificates = certPath;
-		} else
-			LogDebugV("Reusing HTTP instance for %s (%s)", inURL.toString(), reqHeaders);
+		}
 		return activeHTTP[inURL.hostname];
 	}
 	/++
@@ -245,7 +243,6 @@ class HTTP {
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
 		output.maxTries = retryCount;
-		LogDebugV("Spawning GET Request for host %s, path %s", output.url.hostname, output.url.path);
 		return output;
 	}
 	/++
@@ -297,7 +294,6 @@ class HTTP {
 	                return CurlSeek.cantseek;
 	        }
 	    };
-		LogDebugV("Spawning POST Request for host %s, path %s", output.url.hostname, output.url.path);
 		return output;
 	}
 	override string toString() @safe const {
@@ -356,12 +352,11 @@ class HTTP {
 		///Change filename for saved files
 		Nullable!string overriddenFilename;
 		invariant() {
-			assert((url.protocol != Proto.Unknown) && (url.protocol != Proto.None) && (url.protocol != Proto.Same), "No protocol specified in URL");
+			import std.algorithm : among;
+			assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
 			assert(_isValid, "Dead curl instance!");
 		}
 		private this(CurlHTTP* inClient, URL initial, bool peerVerification) @safe nothrow {
-			if (initial.protocol == Proto.HTTPS)
-				LogDiagnostic(!peerVerification, "Peer verification disabled!");
 			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
@@ -643,7 +638,6 @@ class HTTP {
 		private void fetchContent(bool ignoreStatus = false) in {
 			assert(maxTries > 0, "Max tries set to zero?");
 		} body {
-			debug LogTrace("Fetching content");
 			import std.digest.sha : toHexString;
 			import std.exception : enforce;
 			import std.base64, std.conv : to;
@@ -676,7 +670,6 @@ class HTTP {
 			client.verifyPeer(!verifyPeer);
 			client.verifyHost(!ignoreHostCert);
 			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
-			debug LogTrace("Completed setting curl parameters");
 			uint redirectCount = 0;
 			Exception lastException;
 			client.clearRequestHeaders();
