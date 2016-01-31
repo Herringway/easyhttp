@@ -589,6 +589,20 @@ class HTTP {
 				return cast(string)_content;
 		}
 		/++
+		 +
+		 +/
+		 string content() @property const {
+			import std.encoding : transcode;
+			import std.exception : enforce;
+			enforce(fetched);
+			static if (!is(ContentType == string)) {
+				string data;
+				transcode(cast(ContentType)_content, data);
+				return data;
+			} else
+				return cast(string)_content;
+		 }
+		/++
 		 + Returns body of response as parsed JSON.
 		 +
 		 + If a type T is specified, an attempt at automatically deserializing
