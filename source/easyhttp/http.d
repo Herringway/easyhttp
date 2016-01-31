@@ -211,7 +211,6 @@ class HTTP {
 	} body {
 		import std.path : absolutePath, buildNormalizedPath;
 		_cookiepath = buildNormalizedPath(path.absolutePath);
-		LogDebugV("Setting cookie jar path: %s", _cookiepath);
 		httpClient.setCookieJar(_cookiepath);
 		return _cookiepath;
 	}
