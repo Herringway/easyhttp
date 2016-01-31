@@ -2,8 +2,8 @@ module easyhttp.http;
 
 private import easyhttp.fs, easyhttp.url;
 private import std.utf : UTFException;
-public import arsd.dom : Document, Element;
-public import siryul : Optional, AsString, SiryulizeAs;
+version(Have_arsd_dom) public import arsd.dom : Document, Element;
+version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 
 ///Default number of times to retry a request
 public uint defaultMaxTries = 5;
@@ -606,17 +606,22 @@ class HTTP {
 				import std.json: parseJSON;
 				return parseJSON(fixedContent);
 			} else {
-				import siryul : fromString, JSON;
-				return fixedContent.fromString!(T,JSON);
+				version(Have_siryul) {
+					import siryul : fromString, JSON;
+					return fixedContent.fromString!(T,JSON);
+				} else
+					assert(0, "Unable to serialize without serialization library");
 			}
 		}
-		/++
-		 + Returns body of response as a parsed HTML document.
-		 +
-		 + See arsd.dom for details and usage.
-		 +/
-		Document dom() @property {
-			return new Document(content);
+		version(Have_arsd_dom) {
+			/++
+			 + Returns body of response as a parsed HTML document.
+			 +
+			 + See arsd.dom for details and usage.
+			 +/
+			Document dom() @property {
+				return new Document(content);
+			}
 		}
 		/++
 		 + Performs the request.
