@@ -117,9 +117,6 @@ enum HTTPStatus : ushort {
 }
 ///Default HTTP request spawner
 HTTPFactory httpfactory;
-static this() {
-	httpfactory = HTTPFactory();
-}
 /++
  + Struct for spawning and reusing requests based on hostname.
  +/
@@ -238,7 +235,7 @@ class HTTP {
 	+ Prepares an HTTP GET request.
 	+/
 	auto get(T = string)(URL inURL) {
-		auto output = Request!(T)(&httpClient, url.absoluteURL(inURL), peerVerification);
+		auto output = Request!(T)(httpClient, url.absoluteURL(inURL), peerVerification);
 		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.get;
 		output.onReceive = null;
@@ -260,7 +257,7 @@ class HTTP {
 		import std.string : representation;
 		import std.algorithm : min;
 		import etc.c.curl : CurlSeekPos, CurlSeek;
-		auto output = Request!T(&httpClient, url, peerVerification);
+		auto output = Request!T(httpClient, url, peerVerification);
 		output.outHeaders = headers;
 		output.method = CurlHTTP.Method.post;
 		output.onReceive = null;
@@ -322,12 +319,13 @@ class HTTP {
 			string token;
 			string tokenSecret;
 		}
+		private bool initialized = false;
 		private string bearerToken;
 		private const(ubyte)[] _content;
 		private URLHeaders _headers;
 		private URLHeaders outHeaders;
 		private Nullable!size_t sizeExpected;
-		private CurlHTTP* client;
+		private CurlHTTP client;
 		private bool fetched = false;
 		private bool checkNoContent = false;
 		///Maximum number of tries to retry the request
@@ -353,10 +351,12 @@ class HTTP {
 		Nullable!string overriddenFilename;
 		invariant() {
 			import std.algorithm : among;
-			assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
-			assert(_isValid, "Dead curl instance!");
+			if (initialized) {
+				assert(_isValid, "Dead curl instance!");
+				assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
+			}
 		}
-		private this(CurlHTTP* inClient, URL initial, bool peerVerification) @safe nothrow {
+		private this(ref CurlHTTP inClient, URL initial, bool peerVerification) nothrow {
 			verifyPeer = peerVerification;
 			client = inClient;
 			url = initial;
@@ -385,7 +385,7 @@ class HTTP {
 		}
 		private bool _isValid() @property nothrow const {
 			try {
-				return !(cast()*client).isStopped();
+				return !(cast()client).isStopped();
 			} catch (Exception) {
 				return false;
 			}
