@@ -424,7 +424,7 @@ class HTTP {
 				mkdirRecurse(dest.dirName());
 			dest = dest.fixPath();
 			auto outFile = File(dest, "wb");
-			scope(exit) 
+			scope(exit)
 				if (outFile.isOpen) {
 					outFile.flush();
 					outFile.close();
