@@ -43,6 +43,7 @@ unittest {
 	assert("HTTP://example".urlProtocol == Proto.HTTP);
 	assert("HTTPS://example".urlProtocol == Proto.HTTPS);
 	assert("FTP://example".urlProtocol == Proto.FTP);
+	assert("http:example".urlProtocol == Proto.HTTP);
 }
 /++
  + Gets the hostname for the given protocol.
@@ -51,20 +52,25 @@ unittest {
  +/
 string getHostname(in string URL, in Proto protocol) pure @safe {
 	import std.string : toLower, split;
-	auto splitComponents = URL.split("/");
-	if (protocol == Proto.Unknown)
-		return splitComponents[0].toLower();
-	else if (protocol != Proto.None)
-		return splitComponents[2].toLower();
-	return "";
+	import std.algorithm : filter, among;
+	import std.range : front, empty, drop, join;
+	auto splitComponents = URL.split(":");
+	if (!protocol.among(Proto.Unknown, Proto.Same))
+		splitComponents = splitComponents.drop(1);
+	auto domain = splitComponents.join(":").split("/").filter!(x => !x.empty);
+	if (domain.empty)
+		return "";
+	return domain.front.toLower();
 }
 ///
 unittest {
 	assert(getHostname("http://example/some/path", Proto.HTTP) == "example");
 	assert(getHostname("https://example/some/path", Proto.HTTPS) == "example");
 	assert(getHostname("ftp://example/some/path", Proto.FTP) == "example");
+	assert(getHostname("//example/some/path", Proto.Same) == "example");
 	assert(getHostname("wheeeeeeeeeeeeeeeeeeee", Proto.None) == "");
 	assert(getHostname("example/some/path", Proto.Unknown) == "example");
+	assert(getHostname("http:example", Proto.HTTP) == "example");
 }
 /++
  + A Uniform Resource Locator.
@@ -114,7 +120,8 @@ struct URL {
 	///ditto
 	this(URLString str) @safe {
 		import std.array : replace;
-		import std.algorithm : find;
+		import std.algorithm : find, among;
+		import std.range : drop;
 		import std.string : toLower, split, join;
 		import std.uri : decode;
 		this.protocol = str.urlProtocol;
@@ -122,13 +129,10 @@ struct URL {
 		if (splitComponents.length > 0) {
 			this.hostname = getHostname(str, this.protocol);
 			//Get Path
-			if (this.protocol == Proto.Unknown)
-				this.path = splitComponents[0..$].join("/");
-			else if (this.protocol == Proto.None)
-				this.path = splitComponents[0..$].join("/");
+			if (this.protocol.among(Proto.Unknown, Proto.None))
+				this.path = splitComponents.join("/");
 			else
-				this.path = splitComponents[3..$].join("/");
-
+				this.path = splitComponents.drop(3).join("/");
 			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
 				foreach (arg; existingParameters[1..$].split("&")) {
@@ -271,6 +275,7 @@ unittest {
 	assert(URL("HTTP://URL.EXAMPLE").protocol == Proto.HTTP, "HTTP caps detection failure");
 	assert(URL("HTTPS://URL.EXAMPLE").protocol == Proto.HTTPS, "HTTPS caps detection failure");
 	assert(URL("URL.EXAMPLE").protocol == Proto.Unknown, "No-protocol caps detection failure");
+	assert(URL("http:url.example").protocol == Proto.HTTP);
 }
 unittest {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
@@ -281,6 +286,7 @@ unittest {
 	assert(URL("HTTPS://URL.EXAMPLE").hostname == "url.example", "HTTPS caps hostname detection failure");
 	assert(URL("URL.EXAMPLE").hostname == "url.example", "No-protocol caps hostname detection failure");
 	assert(URL("http://URL.EXAMPLE/DIR").hostname == "url.example", "path+caps hostname detection failure");
+	assert(URL("HTTP:url.example").hostname == "url.example");
 }
 unittest {
 	assert(URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example", "Switching protocol (string) failure");
