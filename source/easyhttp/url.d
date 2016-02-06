@@ -55,6 +55,8 @@ string getHostname(in string URL, in Proto protocol) pure @safe {
 	import std.algorithm : filter, among;
 	import std.range : front, empty, drop, join;
 	auto splitComponents = URL.split(":");
+	if (protocol == Proto.None)
+		return "";
 	if (!protocol.among(Proto.Unknown, Proto.Same))
 		splitComponents = splitComponents.drop(1);
 	auto domain = splitComponents.join(":").split("/").filter!(x => !x.empty);
@@ -258,6 +260,7 @@ unittest {
 	assert(URL("http://url.example").toString() == "http://url.example", "Simple complete URL (no ending slash) failure");
 	assert(URL("something").toString() == "something", "Path-only relative URL recreation failure");
 	assert(URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
+	assert(URL("/something?a=b:d").toString() == "/something?a=b%3Ad");
 }
 unittest {
 	struct Test {
@@ -276,6 +279,7 @@ unittest {
 	assert(URL("HTTPS://URL.EXAMPLE").protocol == Proto.HTTPS, "HTTPS caps detection failure");
 	assert(URL("URL.EXAMPLE").protocol == Proto.Unknown, "No-protocol caps detection failure");
 	assert(URL("http:url.example").protocol == Proto.HTTP);
+	assert(URL("/something?a=b:d").protocol == Proto.None);
 }
 unittest {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
@@ -287,6 +291,7 @@ unittest {
 	assert(URL("URL.EXAMPLE").hostname == "url.example", "No-protocol caps hostname detection failure");
 	assert(URL("http://URL.EXAMPLE/DIR").hostname == "url.example", "path+caps hostname detection failure");
 	assert(URL("HTTP:url.example").hostname == "url.example");
+	assert(URL("/something?a=b:d").hostname == "");
 }
 unittest {
 	assert(URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example", "Switching protocol (string) failure");
