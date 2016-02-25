@@ -291,6 +291,7 @@ class HTTP {
 		import etc.c.curl : CurlSeekPos, CurlSeek;
 		import std.digest.sha : isDigest;
 		import std.json: JSONValue;
+		import std.array : Appender;
 		private struct OAuthParams {
 			string consumerToken;
 			string consumerSecret;
@@ -299,7 +300,7 @@ class HTTP {
 		}
 		private bool initialized = false;
 		private string bearerToken;
-		private const(ubyte)[] _content;
+		private Appender!(const(ubyte)[]) _content;
 		private URLHeaders _headers;
 		private URLHeaders outHeaders;
 		private Nullable!size_t sizeExpected;
@@ -349,7 +350,7 @@ class HTTP {
 		 + Reset the state of this request.
 		 +/
 		void reset() nothrow pure @safe {
-			_content = [];
+			_content = _content.init;
 			_headers = null;
 			fetched = false;
 		}
@@ -413,7 +414,7 @@ class HTTP {
 			if (!fetched)
 				fetchContent();
 			else
-				outFile.rawWrite(_content);
+				outFile.rawWrite(_content.data);
 			return output;
 		}
 		/++
@@ -536,7 +537,7 @@ class HTTP {
 		private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
 			import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
 			auto hash = makeDigest!HashMethod;
-			hash.put(_content);
+			hash.put(_content.data);
 			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 		}
 		/++
@@ -554,30 +555,32 @@ class HTTP {
 		/++
 		 + Returns body of response as a string.
 		 +/
-		string content() @property {
-			import std.encoding : transcode;
+		T content(T = string)() @property {
 			if (!fetched)
 				fetchContent(false);
-			static if (!is(ContentType == string)) {
-				string data;
-				transcode(cast(ContentType)_content, data);
-				return data;
-			} else
-				return cast(string)_content;
+			return contentInternal!T;
 		}
 		/++
 		 +
 		 +/
-		 string content() @property const {
-			import std.encoding : transcode;
+		 T content(T = string)() @property const {
 			import std.exception : enforce;
 			enforce(fetched);
-			static if (!is(ContentType == string)) {
-				string data;
-				transcode(cast(ContentType)_content, data);
-				return data;
+			return contentInternal!T;
+		 }
+		 private T contentInternal(T = string)() const {
+			import std.encoding : transcode;
+			import std.string : assumeUTF;
+			import std.conv : to;
+			static if (is(T == string)) {
+				static if (!is(ContentType == string)) {
+					string data;
+					transcode(cast(ContentType)_content.data, data);
+					return data;
+				} else
+					return _content.data.assumeUTF;
 			} else
-				return cast(string)_content;
+				return _content.data.to!T;
 		 }
 		/++
 		 + Returns body of response as parsed JSON.
@@ -675,7 +678,7 @@ class HTTP {
 				client.url = url.toString();
 				client.method = method;
 				try {
-					_content = [];
+					_content = _content.init;
 					_headers = null;
 					client.perform();
 					stopWriting = true;
@@ -687,11 +690,11 @@ class HTTP {
 					if ("content-md5" in _headers)
 						enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
 					if ("content-length" in _headers)
-						enforce(_content.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+						enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 					if (!sizeExpected.isNull)
-						enforce(_content.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+						enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
 					if (checkNoContent)
-						enforce(_content.length > 0, new HTTPException("No data received"));
+						enforce(_content.data.length > 0, new HTTPException("No data received"));
 					if (!ignoreStatus)
 						enforce(statusCode < 300, new StatusException(statusCode));
 					if (!md5(true).original.isNull())
