@@ -7,20 +7,6 @@ version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 
 ///Default number of times to retry a request
 public uint defaultMaxTries = 5;
-version(Have_loggins) {
-	private import loggins;
-} else {
-	private void log(T...)(string fmt, T params) {
-		import std.stdio : writefln;
-		writefln(fmt, params);
-	}
-	alias LogTrace = log;
-	alias LogDebugV = log;
-	alias LogDebug = log;
-	alias LogDiagnostic = log;
-	alias LogInfo = log;
-	alias LogError = log;
-}
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
@@ -136,7 +122,6 @@ struct HTTPFactory {
 		foreach (path; caCertSearchPaths)
 			if (path.exists) {
 				certPath = path;
-				LogDebugV("Found certs at %s", path);
 				break;
 			}
 	}
@@ -145,7 +130,6 @@ struct HTTPFactory {
 		assert(inURL.hostname, "Missing hostname in provided URL");
 		assert((inURL.protocol != URL.Proto.Unknown) && (inURL.protocol != URL.Proto.None) && (inURL.protocol != URL.Proto.Same), "Bad protocol for provided URL");
 	} body {
-		LogDebugV("Spawning...%s", inURL);
 		if (inURL.hostname !in activeHTTP) {
 			activeHTTP[inURL.hostname] = new HTTP(inURL, reqHeaders);
 			activeHTTP[inURL.hostname].cookieJar = cookieJar;
@@ -269,11 +253,6 @@ class HTTP {
 	        size_t minLen = min(buf.length, remainingData.length);
 	        if (minLen == 0) return 0;
 	        buf[0..minLen] = remainingData[0..minLen];
-	        try {
-				LogDebugV("POSTING %s", cast(string)remainingData[0..minLen]);
-	        } catch (UTFException e) {
-				LogDebugV("POSTING %s", remainingData[0..minLen]);
-			}
 	        remainingData = remainingData[minLen..$];
 	        return minLen;
 	    };
@@ -500,8 +479,6 @@ class HTTP {
 			foreach (k,dv; params)
 				foreach (v; dv)
 					authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
-			LogDebugV("Oauth: %(%s,\n%)", authString);
-			LogDebugV("Adding header: Authorization: %s", "OAuth " ~ authString.join(", "));
 			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
 		}+/
 		/++
@@ -697,7 +674,6 @@ class HTTP {
 				stopWriting = false;
 				client.url = url.toString();
 				client.method = method;
-				LogDebugV("Fetching %s with method %s from %s (%s)\nOther headers: %s", url, client.method, url.hostname, url.protocol, outHeaders);
 				try {
 					_content = [];
 					_headers = null;
@@ -726,13 +702,10 @@ class HTTP {
 					return;
 				} catch (CurlException e) {
 					lastException = e;
-					LogDebugV("%s", e);
 				} catch (StatusException e) {
-					LogDebugV("HTTP %s error", statusCode);
 					with(HTTPStatus) switch (statusCode) {
 						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
 							enforce(redirectCount++ < 5, e);
-							LogDebugV("Changing URL to %s and retrying", _headers["location"]);
 							url = url.absoluteURL(_headers["location"]);
 							if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
 								method = CurlHTTP.Method.get;
@@ -745,7 +718,6 @@ class HTTP {
 					lastException = e;
 				} catch (HTTPException e) {
 					lastException = e;
-					LogDebugV("%s", e);
 				}
 			}
 			throw lastException;
