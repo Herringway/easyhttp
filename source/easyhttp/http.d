@@ -819,7 +819,7 @@ class HTTPException : Exception {
 		super(msg, file, line);
 	}
 }
-unittest {
+version(online) unittest {
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;
@@ -829,21 +829,25 @@ unittest {
 		auto req = httpfactory.get(testURL);
 		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
 		assertNotThrown(req.status, "MD5 failure (lowercase)");
+		assert(req.isComplete);
 	}
 	{
 		auto req = httpfactory.get(testURL);
 		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC8";
 		assertNotThrown(req.status, "MD5 failure (uppercase)");
+		assert(req.isComplete);
 	}
 	{
 		auto req = httpfactory.get(testURL);
 		req.sha1 = "f030bbbd32966cde41037b98a8849c46b76e4bc1";
 		assertNotThrown(req.status, "SHA1 failure (lowercase)");
+		assert(req.isComplete);
 	}
 	{
 		auto req = httpfactory.get(testURL);
 		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC1";
 		assertNotThrown(req.status, "SHA1 failure (uppercase)");
+		assert(req.isComplete);
 	}
 	{
 		auto req = httpfactory.get(testURL);
@@ -871,6 +875,7 @@ unittest {
  		auto req = httpfactory.get(testURL);
  		req.expectedSize = 3;
  		assertNotThrown(req.status, "Expected size failure (correct size given)");
+		assert(req.isComplete);
  		req = httpfactory.get(testURL);
  		req.expectedSize = 4;
  		assertThrown(req.status, "Expected size failure (intentional bad size)");
@@ -879,14 +884,19 @@ unittest {
 		auto req = httpfactory.post(testURL, "hi");
 		req.guaranteedData = true;
 		assertNotThrown(req.status);
+		assert(req.isComplete);
 	}
 	{
 		auto req = httpfactory.post(testURL, "");
 		req.guaranteedData = true;
 		assertThrown(req.status);
 	}
-	assert(httpfactory.get(testURL, testHeaders).content == "GET", "GET URL failure");
-	assert(httpfactory.get(testURL, testHeaders).status == HTTPStatus.OK, "200 status undetected");
+	{
+		auto req = httpfactory.get(testURL, testHeaders);
+		assert(req.content == "GET", "GET URL failure");
+		assert(req.status == HTTPStatus.OK, "200 status undetected");
+		assert(req.isComplete);
+	}
 	assert(httpfactory.get(testURL.withParams(["301":""])).content == "GET");
 	assert(httpfactory.get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
 	assert(httpfactory.get(testURL.withParams(["302":""])).content == "GET");
