@@ -7,5 +7,16 @@
 		"libcurl": ">=7.34.0",
 		"arsd:dom": ">=0.1.0",
 		"siryul": "~>0.2.0"
-	}
+	},
+	"configurations": [
+		{
+			"name": "default",
+			"targetType": "library"
+		},
+		{
+			"name": "online-test",
+			"targetType": "library",
+			"versions": ["online"]
+		}
+	]
 }
