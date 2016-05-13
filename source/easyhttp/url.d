@@ -16,7 +16,7 @@ import std.stdio;
  + Params:
  +  url = URL to analyze
  +/
-Proto urlProtocol(in string url) @property pure @safe {
+Proto urlProtocol(in string url) pure @safe {
 	import std.string : toLower;
 	import std.algorithm : startsWith;
 	if (url.startsWith!"toLower(a) == b"("http:"))
@@ -153,7 +153,7 @@ struct URL {
 	/++
 	 + The filename for the URL, with nothing else.
 	 +/
-	@property string fileName() nothrow const pure @safe {
+	string fileName() nothrow const pure @safe {
 		import std.string : split;
 		if (path.split("/").length == 0)
 			return "";
@@ -168,7 +168,7 @@ struct URL {
 	/++
 	 + Transforms the parameters for this URL to a URL-encoded string.
 	 +/
-	string paramString() @property nothrow const @trusted {
+	string paramString() nothrow const @trusted {
 		import std.uri : encode;
 		import std.string : format, join, replace;
 		if (params == null) return "";

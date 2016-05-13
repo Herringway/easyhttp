@@ -74,7 +74,7 @@ unittest {
  + Params:
  +  oldFilename = original filename to add/increase duplicate count for
  +/
-@property string duplicateName(string oldFilename) {
+string duplicateName(string oldFilename) {
 	import std.string : format;
 	import std.format : formattedRead;
 	import std.path : stripExtension, extension;

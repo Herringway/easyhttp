@@ -188,7 +188,7 @@ class HTTP {
 	/++
 	 + Path for the file to store cookies in.
 	 +/
-	string cookieJar(FileSystemPath path) @property in {
+	string cookieJar(FileSystemPath path) in {
 		import std.path : dirName;
 		import std.file : isDir;
 		assert(dirName(path).isDir, dirName(path)~" is not a directory!");
@@ -199,7 +199,7 @@ class HTTP {
 		return _cookiepath;
 	}
 	///ditto
-	string cookieJar() @property @safe pure @nogc nothrow {
+	string cookieJar() @safe pure @nogc nothrow {
 		return _cookiepath;
 	}
 	/++
@@ -343,7 +343,7 @@ class HTTP {
 		/++
 		 + Whether or not the request has been completed successfully.
 		 +/
-		bool isComplete() @property const @safe pure nothrow @nogc {
+		bool isComplete() const @safe pure nothrow @nogc {
 			return fetched;
 		}
 		/++
@@ -357,12 +357,12 @@ class HTTP {
 		/++
 		 + The default filename for the file being requested.
 		 +/
-		string filename() @property nothrow const pure {
+		string filename() nothrow const pure {
 			if (!overriddenFilename.isNull)
 				return overriddenFilename;
 			return url.fileName;
 		}
-		private bool _isValid() @property nothrow const {
+		private bool _isValid() nothrow const {
 			try {
 				return !(cast()client).isStopped();
 			} catch (Exception) {
@@ -372,7 +372,7 @@ class HTTP {
 		/++
 		 + Whether this request is still valid or not.
 		 +/
-		bool isValid() @property nothrow const {
+		bool isValid() nothrow const {
 			return _isValid;
 		}
 		/++
@@ -422,7 +422,7 @@ class HTTP {
 		 +
 		 + Completes the request if not already done.
 		 +/
-		HTTPStatus status() @property {
+		HTTPStatus status() {
 			if (!fetched)
 				fetchContent(true);
 			return statusCode;
@@ -430,13 +430,13 @@ class HTTP {
 		/++
 		 + Whether or not this request should fail upon receiving an empty body.
 		 +/
-		ref bool guaranteedData() @property @safe pure nothrow @nogc {
+		ref bool guaranteedData() @safe pure nothrow @nogc {
 			return checkNoContent;
 		}
 		/++
 		 + Print debugging information.
 		 +/
-		void verbose(bool val) @property {
+		void verbose(bool val) {
 			client.verbose = val;
 		}
 		/++
@@ -487,7 +487,7 @@ class HTTP {
 		 +
 		 + Null if no size is known.
 		 +/
-		ref Nullable!size_t expectedSize() @safe nothrow pure @nogc @property {
+		ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
 			return sizeExpected;
 		}
 		import std.digest.md : MD5;
@@ -543,19 +543,19 @@ class HTTP {
 		/++
 		 + Whether or not to ignore errors in the server's SSL certificate.
 		 +/
-		ref bool ignoreHostCertificate() @property @nogc @safe pure nothrow {
+		ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
 			return ignoreHostCert;
 		}
 		/++
 		 + Whether or not to validate the peer named in the server's SSL cert.
 		 +/
-		ref bool peerVerification() @property @nogc @safe pure nothrow {
+		ref bool peerVerification() @nogc @safe pure nothrow {
 			return verifyPeer;
 		}
 		/++
 		 + Returns body of response as a string.
 		 +/
-		T content(T = string)() @property {
+		T content(T = string)() {
 			if (!fetched)
 				fetchContent(false);
 			return contentInternal!T;
@@ -563,7 +563,7 @@ class HTTP {
 		/++
 		 +
 		 +/
-		 T content(T = string)() @property const {
+		 T content(T = string)() const {
 			import std.exception : enforce;
 			enforce(fetched);
 			return contentInternal!T;
@@ -591,7 +591,7 @@ class HTTP {
 		 + Params:
 		 +  T = optional type to attempt deserialization to
 		 +/
-		T json(T = JSONValue)() @property {
+		T json(T = JSONValue)() {
 			import std.string : lastIndexOf;
 			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
 			auto fixedContent = content[0..a+1]; //temporary hack
@@ -612,7 +612,7 @@ class HTTP {
 			 +
 			 + See arsd.dom for details and usage.
 			 +/
-			Document dom() @property {
+			Document dom() {
 				return new Document(content);
 			}
 		}
@@ -628,7 +628,7 @@ class HTTP {
 		 +
 		 + Performs the request if not already done.
 		 +/
-		const(URLHeaders) headers() @property {
+		const(URLHeaders) headers() {
 			if (!fetched)
 				fetchContent(true);
 			return _headers;
@@ -759,8 +759,8 @@ unittest {
 /++
  + A useless HTTP request for testing
  +/
-auto nullResponse() @property {
-	return httpfactory.get(URL("http://localhost"));
+auto nullResponse() {
+	return httpfactory.get(URL(URL.Proto.HTTP, "localhost", "/"));
 }
 /++
  + Exception thrown when an unexpected status is encountered.
