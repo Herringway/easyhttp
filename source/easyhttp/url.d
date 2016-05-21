@@ -40,7 +40,7 @@ Proto urlProtocol(in string url) pure @safe nothrow {
 	return Proto.Unknown;
 }
 ///
-unittest {
+@safe pure nothrow unittest {
 	assert("//example".urlProtocol == Proto.Same);
 	assert("/example".urlProtocol == Proto.None);
 	assert("http://example".urlProtocol == Proto.HTTP);
@@ -68,7 +68,7 @@ string getHostname(in string URL, in Proto protocol) pure @safe nothrow {
 	return assumeWontThrow(domain.front.toLower());
 }
 ///
-unittest {
+@safe pure nothrow unittest {
 	assert(getHostname("http://example/some/path", Proto.HTTP) == "example");
 	assert(getHostname("https://example/some/path", Proto.HTTPS) == "example");
 	assert(getHostname("ftp://example/some/path", Proto.FTP) == "example");
