@@ -582,7 +582,7 @@ struct Request(ContentType) {
 				if (checkNoContent)
 					enforce(_content.data.length > 0, new HTTPException("No data received"));
 				if (!ignoreStatus)
-					enforce(statusCode < 300, new StatusException(statusCode));
+					enforce(statusCode < 300, new StatusException(statusCode, url));
 				if (!md5(true).original.isNull())
 					enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
 				if (!sha1(true).original.isNull())
@@ -602,7 +602,7 @@ struct Request(ContentType) {
 					case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
 						break;
 					default:
-						throw new StatusException(statusCode);
+						throw new StatusException(statusCode, url);
 				}
 				lastException = e;
 			} catch (HTTPException e) {
@@ -659,10 +659,9 @@ class StatusException : HTTPException {
 	 +  file = The file where the error occurred
      +  line = The line where the error occurred
 	 +/
-	this(HTTPStatus errorCode, string file = __FILE__, size_t line = __LINE__) @safe pure {
-		import std.string : format;
+	this(HTTPStatus errorCode, URL url, string file = __FILE__, size_t line = __LINE__) {
 		code = errorCode;
-		super(format("Error %d fetching URL", errorCode), file, line);
+		super(format("Error %d fetching URL %s", errorCode, url), file, line);
 	}
 }
 /++
