@@ -1,13 +1,21 @@
 module easyhttp.url;
 
 alias URLParameters = string[][string];
-
 alias URLHeaders = string[string];
 alias URLString = string;
-enum Proto { Unknown, HTTP, HTTPS, FTP, Same, None }
-private alias ProtoEnum = Proto;
 
-import std.stdio;
+import std.algorithm;
+import std.array;
+import std.conv;
+import std.exception;
+import std.format;
+import std.range;
+import std.string;
+import std.uni;
+import std.uri;
+
+import easyhttp.urlencoding;
+
 /++
  + Determines the protocol for the given URL.
  +
@@ -73,8 +81,7 @@ unittest {
  + A Uniform Resource Locator.
  +/
 struct URL {
-	import easyhttp.urlencoding : isURLEncodable, urlEncodeInternal;
-	alias Proto = ProtoEnum;
+	enum Proto { Unknown, HTTP, HTTPS, FTP, Same, None }
 	///Parameters
 	URLParameters params;
 	///Protocol, such as HTTP or FTP
@@ -103,7 +110,6 @@ struct URL {
 	 + Constructor for URL strings
 	 +/
 	this(T)(URLString str, T inParams) if (isURLEncodable!T) {
-		import std.uri : decodeComponent;
 		this(str);
 		foreach (key, values; urlEncodeInternal(inParams)) {
 			this.params[decodeComponent(key)] = [];
@@ -145,7 +151,6 @@ struct URL {
 	 + The filename for the URL, with nothing else.
 	 +/
 	string fileName() nothrow const pure @safe {
-		import std.string : split;
 		if (path.split("/").length == 0)
 			return "";
 		return path.split("/")[$-1];
@@ -160,8 +165,6 @@ struct URL {
 	 + Transforms the parameters for this URL to a URL-encoded string.
 	 +/
 	string paramString() nothrow const @trusted {
-		import std.uri : encode;
-		import std.string : format, join, replace;
 		if (params == null) return "";
 		string[] parameterPrintable;
 		try {

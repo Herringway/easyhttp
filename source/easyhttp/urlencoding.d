@@ -1,10 +1,14 @@
 module easyhttp.urlencoding;
 
-import std.conv : to;
 import std.algorithm;
 import std.array;
+import std.conv;
 import std.exception;
+import std.format;
 import std.range;
+import std.string;
+import std.traits;
+import std.uri;
 /++
  + URL-encodes a data structure.
  +
@@ -19,7 +23,6 @@ import std.range;
  +  value = The structure to encode
  +/
 string urlEncode(T)(T value) if (isURLEncodable!T) {
-	import std.string : format, join;
 	string[] output;
 	foreach (key, values; urlEncodeInternal(value))
 		foreach (value; values)
@@ -63,8 +66,6 @@ unittest {
 	}
 }
 package string[][string] urlEncodeAssoc(in string[][string] value) {
-	import std.uri : encodeComponent;
-	import std.string : join;
 	string[][string] newData;
 	foreach (key, vals; value)
 		foreach (val; vals)
@@ -95,8 +96,6 @@ package string[][string] toURLParams(in string[][string] value) @safe pure nothr
 	return output;
 }
 package string[][string] urlEncodeInternal(T)(in T value) if (isURLEncodable!T) {
-	import std.traits : isAssociativeArray, Unqual, ValueType, isArray;
-	import std.range : ElementType;
 	static if (is(T == struct))
 		return urlEncodeAssoc(toURLParams(value));
 	else static if (isAssociativeArray!T) {
@@ -106,9 +105,6 @@ package string[][string] urlEncodeInternal(T)(in T value) if (isURLEncodable!T) 
 	}
 }
 package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {
-	import std.traits : isSomeString, isArray, FieldNameTuple;
-	import std.format : format;
-	import std.conv : text;
 	string[][string] output;
 	foreach (member; FieldNameTuple!T) {
 		assert(!is(typeof(__traits(getMember, value, member)) == struct), "Cannot URL encode nested structs");
