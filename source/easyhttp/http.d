@@ -225,10 +225,6 @@ struct Request(ContentType) {
 	uint contentLength;
 	package CurlHTTP.Method method;
 	private OAuthParams oAuthParams;
-	///Whether or not to ignore errors in the server's SSL certificate
-	bool ignoreHostCert = false;
-	///Whether or not to verify the name specified in the server certificate
-	bool verifyPeer = true;
 	///The HTTP status code last seen
 	HTTPStatus statusCode;
 	///Change filename for saved files
@@ -434,12 +430,6 @@ struct Request(ContentType) {
 		return ignoreHostCert;
 	}
 	/++
-	 + Whether or not to validate the peer named in the server's SSL cert.
-	 +/
-	ref bool peerVerification() @nogc @safe pure nothrow {
-		return verifyPeer;
-	}
-	/++
 	 + Returns body of response as a string.
 	 +/
 	T content(T = string)() {
@@ -532,13 +522,16 @@ struct Request(ContentType) {
 		if (cookieJar.isNull && !defaultCookieJar.isNull)
 			client.setCookieJar(defaultCookieJar);
 		client.verbose = verbose;
-		client.verifyPeer(false);
-		client.maxRedirects(uint.max);
+		client.verifyPeer = peerVerification;
+		client.verifyHost = !ignoreHostCert;
+		client.maxRedirects = uint.max;
 		client.clearRequestHeaders();
+		if (!systemCertPath.isNull) {
+			client.caInfo = systemCertPath;
+		}
 		if (!certPath.isNull) {
 			enforce(certPath.exists, "Certificate path not found");
 			client.caInfo = certPath;
-			client.verifyPeer = true;
 		}
 		client.contentLength = contentLength;
 		bool stopWriting = false;
@@ -560,8 +553,6 @@ struct Request(ContentType) {
 					_headers[key] = value.idup;
 		};
 		client.connectTimeout(timeout);
-		client.verifyPeer(!verifyPeer);
-		client.verifyHost(!ignoreHostCert);
 		client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
 		uint redirectCount = 0;
 		Exception lastException;
