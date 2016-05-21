@@ -1,14 +1,34 @@
 module easyhttp.http;
 
-import std.file : exists;
-import easyhttp.fs, easyhttp.url, easyhttp.urlencoding;
-import std.utf : UTFException;
-import std.typecons : Nullable;
-import std.range : chain;
-import std.string;
-import std.algorithm;
+import core.time;
 import etc.c.curl;
+
+import std.algorithm;
+import std.array;
+import std.base64;
+import std.conv;
+import std.datetime;
+import std.digest.digest;
+import std.digest.md;
+import std.digest.sha;
+import std.encoding;
+import std.exception;
+import std.file;
+import std.json;
 import std.net.curl : CurlException, CurlHTTP = HTTP;
+import std.path;
+import std.random;
+import std.range;
+import std.regex;
+import std.stdio;
+import std.string;
+import std.typecons;
+import std.utf;
+
+import easyhttp.fs;
+import easyhttp.url;
+import easyhttp.urlencoding;
+
 version(Have_arsd_dom) public import arsd.dom : Document, Element;
 version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 
@@ -181,12 +201,6 @@ struct Request(ContentType) {
 			original = inHash;
 		}
 	}
-	import std.typecons : Nullable;
-	import core.time : Duration, dur;
-	import etc.c.curl : CurlSeekPos, CurlSeek;
-	import std.digest.sha : isDigest;
-	import std.json: JSONValue;
-	import std.array : Appender;
 	private struct OAuthParams {
 		string consumerToken;
 		string consumerSecret;
@@ -235,7 +249,6 @@ struct Request(ContentType) {
 		}
 	}
 	private this(URL initial) nothrow {
-		import etc.c.curl : LIBCURL_VERSION;
 		if ("User-Agent" !in outHeaders)
 			outHeaders["User-Agent"] = "curlOO ("~LIBCURL_VERSION~")";
 		url = initial;
@@ -279,9 +292,6 @@ struct Request(ContentType) {
 	 +  overwrite = whether or not to overwrite existing files
 	 +/
 	SavedFileInformation saveTo(string dest, bool overwrite = true) {
-		import std.file : exists, mkdirRecurse;
-		import std.path : dirName;
-		import std.stdio : File;
 		auto output = SavedFileInformation();
 		if (!overwrite)
 			while (exists(dest))
@@ -340,7 +350,6 @@ struct Request(ContentType) {
 			addHeader("Authorization", "Bearer "~token);
 	}
 	/+void oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
-		import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, httpinterface.hmac;
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 		URLParameters params;
 		auto copy_url = URL(url.protocol, url.hostname, url.Path, url.params);
@@ -371,8 +380,6 @@ struct Request(ContentType) {
 	ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
 		return sizeExpected;
 	}
-	import std.digest.md : MD5;
-	import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
 	private Hash[string] hashes;
 	alias md5 = hash!MD5;
 	alias sha1 = hash!SHA1;
@@ -380,9 +387,6 @@ struct Request(ContentType) {
 	alias sha384 = hash!SHA384;
 	alias sha512 = hash!SHA512;
 	private template hash(HashMethod) {
-		import std.digest.digest : digestLength;
-		import std.string : removechars, toUpper, format;
-		import std.exception : enforce, assumeWontThrow;
 		/++
 		 + Sets an expected hash for the request.
 		 +/
@@ -420,7 +424,6 @@ struct Request(ContentType) {
 		}
 	}
 	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
-		import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
 		auto hash = makeDigest!HashMethod;
 		hash.put(_content.data);
 		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
@@ -449,14 +452,10 @@ struct Request(ContentType) {
 	 +
 	 +/
 	 T content(T = string)() const {
-		import std.exception : enforce;
 		enforce(fetched);
 		return contentInternal!T;
 	 }
 	 private T contentInternal(T = string)() const {
-		import std.encoding : transcode;
-		import std.string : assumeUTF;
-		import std.conv : to;
 		static if (is(T == string)) {
 			static if (!is(ContentType == string)) {
 				string data;
@@ -477,11 +476,9 @@ struct Request(ContentType) {
 	 +  T = optional type to attempt deserialization to
 	 +/
 	T json(T = JSONValue)() {
-		import std.string : lastIndexOf;
 		auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
 		auto fixedContent = content[0..a+1]; //temporary hack
 		static if (is(T==JSONValue)) {
-			import std.json: parseJSON;
 			return parseJSON(fixedContent);
 		} else {
 			version(Have_siryul) {
@@ -521,9 +518,6 @@ struct Request(ContentType) {
 	private void fetchContent(bool ignoreStatus = false) in {
 		assert(maxTries > 0, "Max tries set to zero?");
 	} body {
-		import std.digest.sha : toHexString;
-		import std.exception : enforce;
-		import std.base64, std.conv : to;
 		if (url.hostname !in clientFactory)
 			clientFactory[url.hostname] = CurlHTTP();
 		auto client = clientFactory[url.hostname];
@@ -631,7 +625,6 @@ struct Request(ContentType) {
  + A parsed content-disposition string
  +/
 struct ContentDisposition {
-	import std.typecons : Nullable;
 	///Filename extracted from the header, if available
 	Nullable!string filename;
 }
@@ -644,7 +637,6 @@ struct ContentDisposition {
  +  str = Header string to parse
  +/
 auto parseDispositionString(string str) @safe {
-	import std.regex : ctRegex, matchFirst;
 	auto output = ContentDisposition();
 	auto regex = ctRegex!`attachment;\s*filename\s*=\s*"?([^"]*)"?`;
 	auto match = matchFirst(str, regex);
@@ -699,7 +691,6 @@ class HashException : HTTPException {
 	this(string hashType, string badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure in {
 		assert(goodHash != badHash, "Good hash and mismatched hash match!");
 	} body {
-		import std.string : format;
 		super(format("Hash mismatch (%s): %s != %s", hashType, badHash, goodHash), file, line);
 	}
 }
