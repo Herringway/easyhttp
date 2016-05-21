@@ -1,5 +1,10 @@
 module easyhttp.urlencoding;
 
+import std.conv : to;
+import std.algorithm;
+import std.array;
+import std.exception;
+import std.range;
 /++
  + URL-encodes a data structure.
  +
@@ -36,14 +41,26 @@ unittest {
 		auto result = urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]);
 		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
-}
-package string[][string] urlEncodeAssoc(in string[string] value) {
-	import std.uri : encodeComponent;
-	import std.string : join;
-	string[][string] newData;
-	foreach (key, val; value)
-		newData[encodeComponent(key)] = [encodeComponent(val)];
-	return newData;
+	{
+		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
+		auto result = urlEncode(constTest);
+		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+	}
+	{
+		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
+		auto result = urlEncode(immutableTest);
+		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+	}
+	{
+		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
+		auto result = urlEncode(constTest);
+		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+	}
+	{
+		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
+		auto result = urlEncode(immutableTest);
+		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+	}
 }
 package string[][string] urlEncodeAssoc(in string[][string] value) {
 	import std.uri : encodeComponent;
@@ -51,33 +68,54 @@ package string[][string] urlEncodeAssoc(in string[][string] value) {
 	string[][string] newData;
 	foreach (key, vals; value)
 		foreach (val; vals)
-			newData[encodeComponent(key)] ~= encodeComponent(val);
+			newData[encodeComponent(key)] ~= [encodeComponent(val)];
 	return newData;
 }
+package string[][string] toURLParams(in string[string] value) @safe pure nothrow {
+	string[][string] newData;
+	try {
+		foreach (key, val; value)
+			newData[key] = [val];
+	} catch(Exception) {
+		assert(0, "Associative array iteration threw somehow");
+	}
+	return newData;
+}
+package string[][string] toURLParams(string[][string] value) @safe pure nothrow {
+	return value;
+}
+package string[][string] toURLParams(in string[][string] value) @safe pure nothrow {
+	string[][string] output;
+	try {
+		foreach (k, v; value)
+			output[k] = v.dup;
+	} catch(Exception) {
+		assert(0, "Associative array iteration threw somehow");
+	}
+	return output;
+}
 package string[][string] urlEncodeInternal(T)(in T value) if (isURLEncodable!T) {
-	import std.traits : isAssociativeArray, Unqual, ValueType;
+	import std.traits : isAssociativeArray, Unqual, ValueType, isArray;
+	import std.range : ElementType;
 	static if (is(T == struct))
-		return urlEncodeStruct(value);
+		return urlEncodeAssoc(toURLParams(value));
 	else static if (isAssociativeArray!T) {
-		static if (is(Unqual!(ValueType!T) == string))
-			return urlEncodeAssoc(value);
-		else static if (is(Unqual!(ValueType!T) == string[]))
-			return urlEncodeAssoc(value);
+		static if (is(Unqual!(ValueType!T) == string)
+			|| (isArray!(Unqual!(ValueType!T)) && is(Unqual!(ElementType!(Unqual!(ValueType!T))) == string)))
+			return urlEncodeAssoc(toURLParams(value));
 	}
 }
-
-package string[][string] urlEncodeStruct(T)(in T value) if (is(T == struct)) {
+package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {
 	import std.traits : isSomeString, isArray, FieldNameTuple;
 	import std.format : format;
 	import std.conv : text;
-	import std.uri : encodeComponent;
 	string[][string] output;
 	foreach (member; FieldNameTuple!T) {
 		assert(!is(typeof(__traits(getMember, value, member)) == struct), "Cannot URL encode nested structs");
 		static if (isArray!(typeof(__traits(getMember, value, member))) && !isSomeString!(typeof(__traits(getMember, value, member)))) {
-			output[encodeComponent(member)] = [encodeComponent(format("%-(%s,%)", __traits(getMember, value, member)))];
+			output[member] = [format("%-(%s,%)", __traits(getMember, value, member))];
 		} else
-			output[encodeComponent(member)] = [encodeComponent(__traits(getMember, value, member).text)];
+			output[member] = [__traits(getMember, value, member).text];
 	}
 	return output;
 }
@@ -90,7 +128,7 @@ package string[][string] urlEncodeStruct(T)(in T value) if (is(T == struct)) {
  +  T = type to test
  +/
 template isURLEncodable(T) {
-	enum isURLEncodable = __traits(compiles, { T thing; urlEncodeStruct(thing); }) || __traits(compiles, { T thing; urlEncodeAssoc(thing); });
+	enum isURLEncodable = __traits(compiles, { T thing; urlEncodeAssoc(toURLParams(thing)); });
 }
 ///
 unittest {
@@ -100,5 +138,6 @@ unittest {
 	static assert(isURLEncodable!Test);
 	static assert(isURLEncodable!(string[string]));
 	static assert(isURLEncodable!(string[][string]));
+	static assert(isURLEncodable!(const(string)[][string]));
 	static assert(!isURLEncodable!uint);
 }
