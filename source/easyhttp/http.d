@@ -547,10 +547,10 @@ struct Request(ContentType) {
 		client.onSend = onSend;
 		client.onReceiveHeader = (in char[] key, in char[] value) {
 			if (auto v = key in _headers) {
-					*v ~= ", ";
-					*v ~= value;
-			    } else
-					_headers[key] = value.idup;
+				*v ~= ", ";
+				*v ~= value;
+		    } else
+				_headers[key] = value.idup;
 		};
 		client.connectTimeout(timeout);
 		client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
