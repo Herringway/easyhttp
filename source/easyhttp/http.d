@@ -205,7 +205,6 @@ struct Request(ContentType) {
 		string token;
 		string tokenSecret;
 	}
-	private bool initialized = false;
 	private string bearerToken;
 	private Appender!(const(ubyte)[]) _content;
 	private URLHeaders _headers;
@@ -218,7 +217,7 @@ struct Request(ContentType) {
 	///Maximum time to wait for the request to complete
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
-	URL url;
+	Nullable!URL url;
 	package size_t delegate(ubyte[]) onReceive;
 	package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
 	package size_t delegate(void[] buf) onSend;
@@ -238,13 +237,15 @@ struct Request(ContentType) {
 	Nullable!string certPath;
 	///Path to store cookies
 	Nullable!string cookieJar;
+	///Whether or not to ignore errors in the server's SSL certificate
+	bool ignoreHostCert = false;
+	///Whether or not to verify the certificate for HTTPS connections
+	bool peerVerification = true;
 	///Whether to output verbose debugging information to stdout
 	bool verbose;
 	invariant() {
-		import std.algorithm : among;
-		if (initialized) {
-			assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
-		}
+		if (!url.isNull)
+			assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
 	}
 	private this(URL initial) nothrow {
 		if ("User-Agent" !in outHeaders)
@@ -515,6 +516,7 @@ struct Request(ContentType) {
 	}
 	private void fetchContent(bool ignoreStatus = false) in {
 		assert(maxTries > 0, "Max tries set to zero?");
+		assert(!url.isNull, "URL not set");
 	} body {
 		if (url.hostname !in clientFactory)
 			clientFactory[url.hostname] = CurlHTTP();
@@ -568,7 +570,7 @@ struct Request(ContentType) {
 			client.addRequestHeader(key, value);
 		foreach (trial; 0..maxTries) {
 			stopWriting = false;
-			client.url = url.toString();
+			client.url = url.text;
 			client.method = method;
 			try {
 				_content = _content.init;
