@@ -23,43 +23,43 @@ import easyhttp.urlencoding;
  + Params:
  +  url = URL to analyze
  +/
-Proto urlProtocol(in string url) pure @safe nothrow {
+URL.Proto urlProtocol(in string url) pure @safe nothrow {
 	if (assumeWontThrow(url.startsWith!"toLower(a) == b"("http:")))
-		return Proto.HTTP;
+		return URL.Proto.HTTP;
 	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("https:")))
-		return Proto.HTTPS;
+		return URL.Proto.HTTPS;
 	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("ftp:")))
-		return Proto.FTP;
+		return URL.Proto.FTP;
 	else if (url.startsWith("//"))
-		return Proto.Same;
+		return URL.Proto.Same;
 	else if (url.startsWith("/"))
-		return Proto.None;
+		return URL.Proto.None;
 	else if (url.startsWith("."))
-		return Proto.None;
-	return Proto.Unknown;
+		return URL.Proto.None;
+	return URL.Proto.Unknown;
 }
 ///
 @safe pure nothrow unittest {
-	assert("//example".urlProtocol == Proto.Same);
-	assert("/example".urlProtocol == Proto.None);
-	assert("http://example".urlProtocol == Proto.HTTP);
-	assert("https://example".urlProtocol == Proto.HTTPS);
-	assert("ftp://example".urlProtocol == Proto.FTP);
-	assert("HTTP://example".urlProtocol == Proto.HTTP);
-	assert("HTTPS://example".urlProtocol == Proto.HTTPS);
-	assert("FTP://example".urlProtocol == Proto.FTP);
-	assert("http:example".urlProtocol == Proto.HTTP);
+	assert("//example".urlProtocol == URL.Proto.Same);
+	assert("/example".urlProtocol == URL.Proto.None);
+	assert("http://example".urlProtocol == URL.Proto.HTTP);
+	assert("https://example".urlProtocol == URL.Proto.HTTPS);
+	assert("ftp://example".urlProtocol == URL.Proto.FTP);
+	assert("HTTP://example".urlProtocol == URL.Proto.HTTP);
+	assert("HTTPS://example".urlProtocol == URL.Proto.HTTPS);
+	assert("FTP://example".urlProtocol == URL.Proto.FTP);
+	assert("http:example".urlProtocol == URL.Proto.HTTP);
 }
 /++
  + Gets the hostname for the given protocol.
  +
  + Returns: hostname or empty string if none exists
  +/
-string getHostname(in string URL, in Proto protocol) pure @safe nothrow {
-	auto splitComponents = URL.split(":");
-	if (protocol == Proto.None)
+string getHostname(in string url, in URL.Proto protocol) pure @safe nothrow {
+	auto splitComponents = url.split(":");
+	if (protocol == URL.Proto.None)
 		return "";
-	if (!protocol.among(Proto.Unknown, Proto.Same))
+	if (!protocol.among(URL.Proto.Unknown, URL.Proto.Same))
 		splitComponents = splitComponents.drop(1);
 	auto domain = splitComponents.join(":").split("/").filter!(x => !x.empty);
 	if (domain.empty)
@@ -68,13 +68,13 @@ string getHostname(in string URL, in Proto protocol) pure @safe nothrow {
 }
 ///
 @safe pure nothrow unittest {
-	assert(getHostname("http://example/some/path", Proto.HTTP) == "example");
-	assert(getHostname("https://example/some/path", Proto.HTTPS) == "example");
-	assert(getHostname("ftp://example/some/path", Proto.FTP) == "example");
-	assert(getHostname("//example/some/path", Proto.Same) == "example");
-	assert(getHostname("wheeeeeeeeeeeeeeeeeeee", Proto.None) == "");
-	assert(getHostname("example/some/path", Proto.Unknown) == "example");
-	assert(getHostname("http:example", Proto.HTTP) == "example");
+	assert(getHostname("http://example/some/path", URL.Proto.HTTP) == "example");
+	assert(getHostname("https://example/some/path", URL.Proto.HTTPS) == "example");
+	assert(getHostname("ftp://example/some/path", URL.Proto.FTP) == "example");
+	assert(getHostname("//example/some/path", URL.Proto.Same) == "example");
+	assert(getHostname("wheeeeeeeeeeeeeeeeeeee", URL.Proto.None) == "");
+	assert(getHostname("example/some/path", URL.Proto.Unknown) == "example");
+	assert(getHostname("http:example", URL.Proto.HTTP) == "example");
 }
 /++
  + A Uniform Resource Locator.
@@ -300,14 +300,14 @@ unittest {
 	assert(URL("http://url.example/?a=c", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 }
 @safe unittest {
-	assert(URL("http://url.example").protocol == Proto.HTTP, "HTTP detection failure");
-	assert(URL("https://url.example").protocol == Proto.HTTPS, "HTTPS detection failure");
-	assert(URL("url.example").protocol == Proto.Unknown, "No-protocol detection failure");
-	assert(URL("HTTP://URL.EXAMPLE").protocol == Proto.HTTP, "HTTP caps detection failure");
-	assert(URL("HTTPS://URL.EXAMPLE").protocol == Proto.HTTPS, "HTTPS caps detection failure");
-	assert(URL("URL.EXAMPLE").protocol == Proto.Unknown, "No-protocol caps detection failure");
-	assert(URL("http:url.example").protocol == Proto.HTTP);
-	assert(URL("/something?a=b:d").protocol == Proto.None);
+	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
+	assert(URL("https://url.example").protocol == URL.Proto.HTTPS, "HTTPS detection failure");
+	assert(URL("url.example").protocol == URL.Proto.Unknown, "No-protocol detection failure");
+	assert(URL("HTTP://URL.EXAMPLE").protocol == URL.Proto.HTTP, "HTTP caps detection failure");
+	assert(URL("HTTPS://URL.EXAMPLE").protocol == URL.Proto.HTTPS, "HTTPS caps detection failure");
+	assert(URL("URL.EXAMPLE").protocol == URL.Proto.Unknown, "No-protocol caps detection failure");
+	assert(URL("http:url.example").protocol == URL.Proto.HTTP);
+	assert(URL("/something?a=b:d").protocol == URL.Proto.None);
 }
 @safe unittest {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
