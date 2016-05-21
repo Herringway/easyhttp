@@ -119,6 +119,14 @@ package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {
 	}
 	return output;
 }
+@safe pure unittest {
+	struct Something {
+		string a;
+		uint b;
+		bool[] c;
+	}
+	assert(Something("test", 3, [true, false, true]).toURLParams == ["a": ["test"], "b": ["3"], "c": ["true,false,true"]]);
+}
 /++
  + Detect whether or not a type T is URL-encodable.
  +
