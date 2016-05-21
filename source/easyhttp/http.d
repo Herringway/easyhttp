@@ -709,12 +709,28 @@ version(online) unittest {
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;
 	enum testURL = URL("http://misc.herringway.pw/.test.php");
-	enum testHeaders = ["Referer": testURL.hostname];
+	enum testURLHTTPS = URL("https://misc.herringway.pw/.test.php");
+	auto testHeaders = ["Referer": testURL.hostname];
 	{
 		auto req = get(testURL);
 		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
 		assertNotThrown(req.status, "MD5 failure (lowercase)");
 		assert(req.isComplete);
+	}
+	{
+		auto req = get(testURLHTTPS);
+		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
+		assertNotThrown(req.status, "MD5 failure (lowercase, HTTPS)");
+		assert(req.isComplete);
+	}
+	{
+		auto req = get(URL("https://expired.badssl.com"));
+		assertThrown(req.status, "HTTPS on expired cert succeeded");
+	}
+	{
+		auto req = get(URL("https://expired.badssl.com"));
+		req.peerVerification = false;
+		assertNotThrown(req.status, "HTTPS without peer verification failed on expired cert");
 	}
 	{
 		auto req = get(testURL);
@@ -741,15 +757,15 @@ version(online) unittest {
 	}
 	{
 		auto req = get(testURL);
-		assertThrown(req.md5 = "", "Bad MD5 (empty string)");
+		assertThrown((req.md5 = ""), "Bad MD5 (empty string)");
 	}
 	{
 		auto req = get(testURL);
-		assertThrown(req.md5 = "BAD", "Bad MD5 (BAD)");
+		assertThrown((req.md5 = "BAD"), "Bad MD5 (BAD)");
 	}
 	{
 		auto req = get(testURL);
-		assertThrown(req.sha1 = "BAD", "Bad SHA1 (BAD)");
+		assertThrown((req.sha1 = "BAD"), "Bad SHA1 (BAD)");
 	}
 	{
 		auto req = get(testURL);
@@ -767,6 +783,12 @@ version(online) unittest {
  	}
 	{
 		auto req = post(testURL, "hi");
+		req.guaranteedData = true;
+		assertNotThrown(req.status);
+		assert(req.isComplete);
+	}
+	{
+		auto req = post(testURLHTTPS, "hi");
 		req.guaranteedData = true;
 		assertNotThrown(req.status);
 		assert(req.isComplete);
