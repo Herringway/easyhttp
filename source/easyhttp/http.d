@@ -1,16 +1,26 @@
 module easyhttp.http;
 
-private import easyhttp.fs, easyhttp.url;
-private import std.utf : UTFException;
+import std.file : exists;
+import easyhttp.fs, easyhttp.url, easyhttp.urlencoding;
+import std.utf : UTFException;
+import std.typecons : Nullable;
+import std.range : chain;
+import std.string;
+import std.algorithm;
+import etc.c.curl;
+import std.net.curl : CurlException, CurlHTTP = HTTP;
 version(Have_arsd_dom) public import arsd.dom : Document, Element;
 version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 
 ///Default number of times to retry a request
-public uint defaultMaxTries = 5;
+enum defaultMaxTries = 5;
+
+Nullable!string defaultCookieJar;
+
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
-public alias RequestType = HTTP.Request!string;
+public alias RequestType(T) = Request!T;
 
 ///Paths to search for certificates
 public string[] extraCurlCertSearchPaths = [];
@@ -101,154 +111,40 @@ enum HTTPStatus : ushort {
 	NotExtended = 510,
 	NetworkAuthenticationRequired = 511
 }
-///Default HTTP request spawner
-HTTPFactory httpfactory;
-/++
- + Struct for spawning and reusing requests based on hostname.
- +/
-struct HTTPFactory {
-	import std.typecons : Nullable;
-	///Path for the file to store cookies in
-	public string cookieJar;
-	///Number of times to retry failed requests
-	public uint retryCount = 5;
-	private static Nullable!string certPath;
-	static this() @safe {
-		import std.file : exists;
-		string[] caCertSearchPaths = extraCurlCertSearchPaths;
-		version(Windows) caCertSearchPaths ~= ["./curl-ca-bundle.crt"];
-		version(Linux) caCertSearchPaths ~= ["/usr/share/ca-certificates"];
-		version(FreeBSD) caCertSearchPaths ~= ["/usr/local/share/certs/ca-root-nss.crt"];
-		foreach (path; caCertSearchPaths)
-			if (path.exists) {
-				certPath = path;
-				break;
-			}
-	}
-	private HTTP[string] activeHTTP;
-	private HTTP spawn(in URL inURL, URLHeaders reqHeaders = URLHeaders.init) in {
-		assert(inURL.hostname, "Missing hostname in provided URL");
-		assert((inURL.protocol != URL.Proto.Unknown) && (inURL.protocol != URL.Proto.None) && (inURL.protocol != URL.Proto.Same), "Bad protocol for provided URL");
-	} body {
-		if (inURL.hostname !in activeHTTP) {
-			activeHTTP[inURL.hostname] = new HTTP(inURL, reqHeaders);
-			activeHTTP[inURL.hostname].cookieJar = cookieJar;
-			if (!certPath.isNull)
-				activeHTTP[inURL.hostname].certificates = certPath;
+immutable Nullable!(string, "") systemCertPath;
+static this() {
+	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
+	version(Linux) immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
+	version(FreeBSD) immutable caCertSearchPaths = ["/usr/local/share/certs/ca-root-nss.crt"];
+	foreach (path; caCertSearchPaths)
+		if (path.exists) {
+			systemCertPath = Nullable!(string, "")(path);
+			break;
 		}
-		return activeHTTP[inURL.hostname];
-	}
-	/++
-	 + Spawns a GET request for the given URL.
-	 +/
-	HTTP.Request!T get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
-		return spawn(inURL, headers).get!T(inURL);
-	}
-	/++
-	 + Spawns a POST request for the given URL.
-	 +/
-	HTTP.Request!T post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) {
-		return spawn(inURL, headers).post!T(inURL, data);
-	}
 }
-/++
- + Creates HTTP Requests for a specified hostname.
- +/
-class HTTP {
-	import std.net.curl : CurlException, CurlHTTP = HTTP;
-	import easyhttp.urlencoding : isURLEncodable, urlEncode;
-	///URL that spawned this class
-	public const(URL) url;
-	///Number of times to retry failed requests
-	public uint retryCount = 5;
+CurlHTTP[string] clientFactory;
 
-	private CurlHTTP httpClient;
-	private URLHeaders headers;
-	private string _cookiepath;
-	private bool peerVerification = false;
-	///Number of HTTP instances spawned
-	debug static ulong numInstances = 0;
-	/++
-	 + Constructor that takes a URL and optional headers.
-	 +/
-	this(in URL inURL, URLHeaders reqHeaders = null) {
-		import etc.c.curl : LIBCURL_VERSION;
-		retryCount = defaultMaxTries;
-		url = inURL;
-
-		httpClient = CurlHTTP();
-		httpClient.verifyPeer(false);
-		httpClient.maxRedirects(uint.max);
-		httpClient.clearRequestHeaders();
-		headers = reqHeaders;
-		if ("User-Agent" !in headers)
-			headers["User-Agent"] = "curlOO ("~LIBCURL_VERSION~")";
-		debug numInstances++;
-	}
-	/++
-	 + Path for the file to store cookies in.
-	 +/
-	string cookieJar(FileSystemPath path) in {
-		import std.path : dirName;
-		import std.file : isDir;
-		assert(dirName(path).isDir, dirName(path)~" is not a directory!");
-	} body {
-		import std.path : absolutePath, buildNormalizedPath;
-		_cookiepath = buildNormalizedPath(path.absolutePath);
-		httpClient.setCookieJar(_cookiepath);
-		return _cookiepath;
-	}
-	///ditto
-	string cookieJar() @safe pure @nogc nothrow {
-		return _cookiepath;
-	}
-	/++
-	 + Path to the system's certificate store.
-	 +/
-	string certificates(FileSystemPath path) {
-		import std.exception : enforce;
-		import std.file : exists;
-		enforce(path.exists(), "Certificate path not found");
-		httpClient.caInfo = path;
-		httpClient.verifyPeer = true;
-		peerVerification = true;
-		return path;
-	}
-	/++
-	+ Prepares an HTTP GET request.
-	+/
-	auto get(T = string)(URL inURL) {
-		auto output = Request!(T)(httpClient, url.absoluteURL(inURL), peerVerification);
-		output.outHeaders = headers;
-		output.method = CurlHTTP.Method.get;
-		output.onReceive = null;
-		output.maxTries = retryCount;
-		return output;
-	}
-	/++
-	 + Prepares an HTTP POST request.
-	 +
-	 + Params:
-	 +  url = URL being POSTed to
-	 +  inData = Data being POSTed
-	 +/
-	auto post(T = string, U)(URL url, U inData) if (isURLEncodable!U) {
-		return post!T(url, urlEncode(inData));
-	}
-	///ditto
-	auto post(T = string)(URL url, POSTData inData) {
-		import std.string : representation;
-		import std.algorithm : min;
-		import etc.c.curl : CurlSeekPos, CurlSeek;
-		auto output = Request!T(httpClient, url, peerVerification);
-		output.outHeaders = headers;
-		output.method = CurlHTTP.Method.post;
-		output.onReceive = null;
-		output.maxTries = retryCount;
-		auto data = inData.representation().dup;
-		output.contentLength = cast(uint)data.length;
-		auto remainingData = data;
-	    output.onSend = delegate size_t(void[] buf)
+auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
+	auto result = Request!T(inURL);
+	result.method = CurlHTTP.Method.get;
+	result.onReceive = null;
+	result.outHeaders = headers;
+	return result;
+}
+auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
+	auto result = Request!T(inURL);
+	result.method = CurlHTTP.Method.post;
+	result.onReceive = null;
+	{
+		static if (is(U == ubyte[]))
+			auto dataCopy = data;
+		else static if (is(U == string))
+			auto dataCopy = data.representation.dup;
+		else static if (isURLEncodable!U)
+			auto dataCopy = urlencode(data).representation.dup;
+		result.contentLength = cast(uint)dataCopy.length;
+		auto remainingData = dataCopy;
+	    result.onSend = delegate size_t(void[] buf)
 	    {
 	        size_t minLen = min(buf.length, remainingData.length);
 	        if (minLen == 0) return 0;
@@ -256,12 +152,12 @@ class HTTP {
 	        remainingData = remainingData[minLen..$];
 	        return minLen;
 	    };
-	    output.onSeek = delegate(long offset, CurlSeekPos mode)
+	    result.onSeek = delegate(long offset, CurlSeekPos mode)
 	    {
 	        switch (mode)
 	        {
 	            case CurlSeekPos.set:
-	                remainingData = data[cast(size_t)offset..$];
+	                remainingData = dataCopy[cast(size_t)offset..$];
 	                return CurlSeek.ok;
 	            default:
 	                // As of curl 7.18.0, libcurl will not pass
@@ -269,462 +165,466 @@ class HTTP {
 	                return CurlSeek.cantseek;
 	        }
 	    };
-		return output;
 	}
-	override string toString() @safe const {
-		return url.toString();
+	result.outHeaders = headers;
+	return result;
+}
+/++
+ + An HTTP Request.
+ +/
+struct Request(ContentType) {
+	private struct Hash {
+		Nullable!string hash;
+		Nullable!string original;
+		alias hash this;
+		this(string inHash) pure @safe {
+			original = inHash;
+		}
+	}
+	import std.typecons : Nullable;
+	import core.time : Duration, dur;
+	import etc.c.curl : CurlSeekPos, CurlSeek;
+	import std.digest.sha : isDigest;
+	import std.json: JSONValue;
+	import std.array : Appender;
+	private struct OAuthParams {
+		string consumerToken;
+		string consumerSecret;
+		string token;
+		string tokenSecret;
+	}
+	private bool initialized = false;
+	private string bearerToken;
+	private Appender!(const(ubyte)[]) _content;
+	private URLHeaders _headers;
+	private URLHeaders outHeaders;
+	private Nullable!size_t sizeExpected;
+	private bool fetched = false;
+	private bool checkNoContent = false;
+	///Maximum number of tries to retry the request
+	uint maxTries = defaultMaxTries;
+	///Maximum time to wait for the request to complete
+	Duration timeout = dur!"minutes"(5);
+	///The URL being requested
+	URL url;
+	package size_t delegate(ubyte[]) onReceive;
+	package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
+	package size_t delegate(void[] buf) onSend;
+	///Length of the data in the body
+	uint contentLength;
+	package CurlHTTP.Method method;
+	private OAuthParams oAuthParams;
+	///Whether or not to ignore errors in the server's SSL certificate
+	bool ignoreHostCert = false;
+	///Whether or not to verify the name specified in the server certificate
+	bool verifyPeer = true;
+	///The HTTP status code last seen
+	HTTPStatus statusCode;
+	///Change filename for saved files
+	Nullable!string overriddenFilename;
+	///Certificate root store
+	Nullable!string certPath;
+	///Path to store cookies
+	Nullable!string cookieJar;
+	///Whether to output verbose debugging information to stdout
+	bool verbose;
+	invariant() {
+		import std.algorithm : among;
+		if (initialized) {
+			assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
+		}
+	}
+	private this(URL initial) nothrow {
+		import etc.c.curl : LIBCURL_VERSION;
+		if ("User-Agent" !in outHeaders)
+			outHeaders["User-Agent"] = "curlOO ("~LIBCURL_VERSION~")";
+		url = initial;
 	}
 	/++
-	 + An HTTP Request.
+	 + Whether or not the request has been completed successfully.
 	 +/
-	struct Request(ContentType) {
-		private struct Hash {
-			Nullable!string hash;
-			Nullable!string original;
-			alias hash this;
-			this(string inHash) pure @safe {
-				original = inHash;
+	bool isComplete() const @safe pure nothrow @nogc {
+		return fetched;
+	}
+	/++
+	 + Reset the state of this request.
+	 +/
+	void reset() nothrow pure @safe {
+		_content = _content.init;
+		_headers = null;
+		fetched = false;
+	}
+	/++
+	 + The default filename for the file being requested.
+	 +/
+	string filename() nothrow const pure {
+		if (!overriddenFilename.isNull)
+			return overriddenFilename;
+		return url.fileName;
+	}
+	/++
+	 + Information about a file saved with the saveTo function.
+	 +/
+	struct SavedFileInformation {
+		///Path that was used for actually saving the file.
+		string path;
+	}
+	/++
+	 + Saves the body of this request to a local path.
+	 +
+	 + Will not overwrite existing files unless overwrite is set.
+	 +
+	 + Params:
+	 +  dest = default destination for the file to be saved
+	 +  overwrite = whether or not to overwrite existing files
+	 +/
+	SavedFileInformation saveTo(string dest, bool overwrite = true) {
+		import std.file : exists, mkdirRecurse;
+		import std.path : dirName;
+		import std.stdio : File;
+		auto output = SavedFileInformation();
+		if (!overwrite)
+			while (exists(dest))
+				dest = duplicateName(dest);
+		output.path = dest;
+		if (!exists(dest.dirName()))
+			mkdirRecurse(dest.dirName());
+		dest = dest.fixPath();
+		auto outFile = File(dest, "wb");
+		scope(exit)
+			if (outFile.isOpen) {
+				outFile.flush();
+				outFile.close();
 			}
-		}
-		import std.typecons : Nullable;
-		import core.time : Duration, dur;
-		import etc.c.curl : CurlSeekPos, CurlSeek;
-		import std.digest.sha : isDigest;
-		import std.json: JSONValue;
-		import std.array : Appender;
-		private struct OAuthParams {
-			string consumerToken;
-			string consumerSecret;
-			string token;
-			string tokenSecret;
-		}
-		private bool initialized = false;
-		private string bearerToken;
-		private Appender!(const(ubyte)[]) _content;
-		private URLHeaders _headers;
-		private URLHeaders outHeaders;
-		private Nullable!size_t sizeExpected;
-		private CurlHTTP client;
-		private bool fetched = false;
-		private bool checkNoContent = false;
-		///Maximum number of tries to retry the request
-		uint maxTries;
-		///Maximum time to wait for the request to complete
-		Duration timeout = dur!"minutes"(5);
-		///The URL being requested
-		URL url;
-		package size_t delegate(ubyte[]) onReceive;
-		package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
-		package size_t delegate(void[] buf) onSend;
-		///Length of the data in the body
-		uint contentLength;
-		package CurlHTTP.Method method;
-		private OAuthParams oAuthParams;
-		///Whether or not to ignore errors in the server's SSL certificate
-		bool ignoreHostCert = false;
-		///Whether or not to verify the name specified in the server certificate
-		bool verifyPeer = true;
-		///The HTTP status code last seen
-		HTTPStatus statusCode;
-		///Change filename for saved files
-		Nullable!string overriddenFilename;
-		invariant() {
-			import std.algorithm : among;
-			if (initialized) {
-				assert(_isValid, "Dead curl instance!");
-				assert(!url.protocol.among(Proto.Unknown, Proto.None, Proto.Same), "No protocol specified in URL \""~url.toString()~"\"");
-			}
-		}
-		private this(ref CurlHTTP inClient, URL initial, bool peerVerification) nothrow {
-			verifyPeer = peerVerification;
-			client = inClient;
-			url = initial;
-		}
+		onReceive = (ubyte[] data) { _content ~= data; outFile.rawWrite(data); return data.length; };
+		outFile.seek(0);
+		if (!fetched)
+			fetchContent();
+		else
+			outFile.rawWrite(_content.data);
+		return output;
+	}
+	/++
+	 + The HTTP status code for a completed request.
+	 +
+	 + Completes the request if not already done.
+	 +/
+	HTTPStatus status() {
+		if (!fetched)
+			fetchContent(true);
+		return statusCode;
+	}
+	/++
+	 + Whether or not this request should fail upon receiving an empty body.
+	 +/
+	ref bool guaranteedData() @safe pure nothrow @nogc {
+		return checkNoContent;
+	}
+	/++
+	 + Adds an outgoing header to the request.
+	 +
+	 + No effect on completed requests.
+	 +/
+	void addHeader(string key, string val) @safe pure nothrow {
+		outHeaders[key] = val;
+	}
+	enum OAuthMethod {Header, URL, Form }
+	/++
+	 + Adds an OAuth bearer token to the request.
+	 +
+	 + Valid methods are OAuthMethod.Header.
+	 +/
+	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
+		bearerToken = token;
+		if (method == OAuthMethod.Header)
+			addHeader("Authorization", "Bearer "~token);
+	}
+	/+void oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
+		import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, httpinterface.hmac;
+		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
+		URLParameters params;
+		auto copy_url = URL(url.protocol, url.hostname, url.Path, url.params);
+		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.consumerToken];
+		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.token];
+		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [to!string(uniform(uint.min, uint.max)) ~ to!string(Clock.currTime().stdTime)];
+		//params["oauth_nonce"] = copy_url.params["oauth_nonce"] = "1771511773635420822306363698";
+		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-SHA1"];
+		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [to!string(Clock.currTime().toUTC().toUnixTime())];
+		//params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = "1406485430";
+		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
+		string signature = [std.uri.encodeComponent(oAuthParams.consumerSecret), std.uri.encodeComponent(oAuthParams.tokenSecret)].join("&");
+		//writeln(signature, "\n", [std.uri.encodeComponent(text(method).toUpper()), std.uri.encodeComponent(copy_url.str), std.uri.encodeComponent(copy_url.paramString)].join("&"));
+		params["oauth_signature"] = [Base64.encode(HMAC!SHA1(signature, std.uri.encodeComponent(text(method).toUpper())~"&"~std.uri.encodeComponent(copy_url.toString(false))~"&"~std.uri.encodeComponent(copy_url.paramString)))];
+		params["realm"] = [""];
+
+		string[] authString;
+		foreach (k,dv; params)
+			foreach (v; dv)
+				authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
+		AddHeader("Authorization", "OAuth " ~ authString.join(", "));
+	}+/
+	/++
+	 + The expected size of the body if available.
+	 +
+	 + Null if no size is known.
+	 +/
+	ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
+		return sizeExpected;
+	}
+	import std.digest.md : MD5;
+	import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
+	private Hash[string] hashes;
+	alias md5 = hash!MD5;
+	alias sha1 = hash!SHA1;
+	alias sha256 = hash!SHA256;
+	alias sha384 = hash!SHA384;
+	alias sha512 = hash!SHA512;
+	private template hash(HashMethod) {
+		import std.digest.digest : digestLength;
+		import std.string : removechars, toUpper, format;
+		import std.exception : enforce, assumeWontThrow;
 		/++
-		 + Whether or not the request has been completed successfully.
+		 + Sets an expected hash for the request.
 		 +/
-		bool isComplete() const @safe pure nothrow @nogc {
-			return fetched;
+		void hash(string hash) @safe pure in {
+			assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+		} body {
+			enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
+			hashes[HashMethod.stringof] = Hash(hash.toUpper());
+		}
+		void hash(immutable(char)[2*digestLength!HashMethod] str) @safe pure nothrow in {
+			assert(str.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+		} body {
+			hashes[HashMethod.stringof] = assumeWontThrow(Hash(str.toUpper().dup));
 		}
 		/++
-		 + Reset the state of this request.
-		 +/
-		void reset() nothrow pure @safe {
-			_content = _content.init;
-			_headers = null;
-			fetched = false;
-		}
-		/++
-		 + The default filename for the file being requested.
-		 +/
-		string filename() nothrow const pure {
-			if (!overriddenFilename.isNull)
-				return overriddenFilename;
-			return url.fileName;
-		}
-		private bool _isValid() nothrow const {
-			try {
-				return !(cast()client).isStopped();
-			} catch (Exception) {
-				return false;
-			}
-		}
-		/++
-		 + Whether this request is still valid or not.
-		 +/
-		bool isValid() nothrow const {
-			return _isValid;
-		}
-		/++
-		 + Information about a file saved with the saveTo function.
-		 +/
-		struct SavedFileInformation {
-			///Path that was used for actually saving the file.
-			string path;
-		}
-		/++
-		 + Saves the body of this request to a local path.
+		 + Gets the hash of the request body.
 		 +
-		 + Will not overwrite existing files unless overwrite is set.
-		 +
-		 + Params:
-		 +  dest = default destination for the file to be saved
-		 +  overwrite = whether or not to overwrite existing files
+		 + Empty if request is incomplete.
 		 +/
-		SavedFileInformation saveTo(string dest, bool overwrite = true) {
-			import std.file : exists, mkdirRecurse;
-			import std.path : dirName;
-			import std.stdio : File;
-			auto output = SavedFileInformation();
-			if (!overwrite)
-				while (exists(dest))
-					dest = duplicateName(dest);
-			output.path = dest;
-			if (!exists(dest.dirName()))
-				mkdirRecurse(dest.dirName());
-			dest = dest.fixPath();
-			auto outFile = File(dest, "wb");
-			scope(exit)
-				if (outFile.isOpen) {
-					outFile.flush();
-					outFile.close();
-				}
-			onReceive = (ubyte[] data) { _content ~= data; outFile.rawWrite(data); return data.length; };
-			outFile.seek(0);
-			if (!fetched)
-				fetchContent();
-			else
-				outFile.rawWrite(_content.data);
+		public Hash hash(bool skipCompleteCheck = false) pure nothrow {
+			if (HashMethod.stringof !in hashes)
+				hashes[HashMethod.stringof] = Hash();
+			if (skipCompleteCheck || fetched)
+				hashes[HashMethod.stringof].hash = getHash!HashMethod;
+			return hashes[HashMethod.stringof];
+		}
+		///ditto
+		public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
+			Hash output;
+			if (HashMethod.stringof in hashes)
+				output = hashes[HashMethod.stringof];
+			if (skipCompleteCheck || fetched)
+				output.hash = getHash!HashMethod;
 			return output;
 		}
-		/++
-		 + The HTTP status code for a completed request.
-		 +
-		 + Completes the request if not already done.
-		 +/
-		HTTPStatus status() {
-			if (!fetched)
-				fetchContent(true);
-			return statusCode;
-		}
-		/++
-		 + Whether or not this request should fail upon receiving an empty body.
-		 +/
-		ref bool guaranteedData() @safe pure nothrow @nogc {
-			return checkNoContent;
-		}
-		/++
-		 + Print debugging information.
-		 +/
-		void verbose(bool val) {
-			client.verbose = val;
-		}
-		/++
-		 + Adds an outgoing header to the request.
-		 +
-		 + No effect on completed requests.
-		 +/
-		void addHeader(string key, string val) @safe pure nothrow {
-			outHeaders[key] = val;
-		}
-		enum OAuthMethod {Header, URL, Form }
-		/++
-		 + Adds an OAuth bearer token to the request.
-		 +
-		 + Valid methods are OAuthMethod.Header.
-		 +/
-		void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
-			bearerToken = token;
-			if (method == OAuthMethod.Header)
-				addHeader("Authorization", "Bearer "~token);
-		}
-		/+void oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
-			import std.digest.sha, std.base64, std.conv, std.random, std.datetime, std.string, httpinterface.hmac;
-			oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
-			URLParameters params;
-			auto copy_url = URL(url.protocol, url.hostname, url.Path, url.params);
-			params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.consumerToken];
-			params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.token];
-			params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [to!string(uniform(uint.min, uint.max)) ~ to!string(Clock.currTime().stdTime)];
-			//params["oauth_nonce"] = copy_url.params["oauth_nonce"] = "1771511773635420822306363698";
-			params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-SHA1"];
-			params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [to!string(Clock.currTime().toUTC().toUnixTime())];
-			//params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = "1406485430";
-			params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
-			string signature = [std.uri.encodeComponent(oAuthParams.consumerSecret), std.uri.encodeComponent(oAuthParams.tokenSecret)].join("&");
-			//writeln(signature, "\n", [std.uri.encodeComponent(text(method).toUpper()), std.uri.encodeComponent(copy_url.str), std.uri.encodeComponent(copy_url.paramString)].join("&"));
-			params["oauth_signature"] = [Base64.encode(HMAC!SHA1(signature, std.uri.encodeComponent(text(method).toUpper())~"&"~std.uri.encodeComponent(copy_url.toString(false))~"&"~std.uri.encodeComponent(copy_url.paramString)))];
-			params["realm"] = [""];
-
-			string[] authString;
-			foreach (k,dv; params)
-				foreach (v; dv)
-					authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
-			AddHeader("Authorization", "OAuth " ~ authString.join(", "));
-		}+/
-		/++
-		 + The expected size of the body if available.
-		 +
-		 + Null if no size is known.
-		 +/
-		ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
-			return sizeExpected;
-		}
-		import std.digest.md : MD5;
-		import std.digest.sha : SHA1, SHA256, SHA384, SHA512;
-		private Hash[string] hashes;
-		alias md5 = hash!MD5;
-		alias sha1 = hash!SHA1;
-		alias sha256 = hash!SHA256;
-		alias sha384 = hash!SHA384;
-		alias sha512 = hash!SHA512;
-		private template hash(HashMethod) {
-			/++
-			 + Sets an expected hash for the request.
-			 +/
-			void hash(string hash) pure in {
-				import std.string : removechars;
-				assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
-			} body {
-				import std.digest.digest : digestLength;
-				import std.string : toUpper, format;
-				import std.exception : enforce;
-				enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
-				hashes[HashMethod.stringof] = Hash(hash.toUpper());
-			}
-			/++
-			 + Gets the hash of the request body.
-			 +
-			 + Empty if request is incomplete.
-			 +/
-			public Hash hash(bool skipCompleteCheck = false) pure nothrow {
-				if (HashMethod.stringof !in hashes)
-					hashes[HashMethod.stringof] = Hash();
-				if (skipCompleteCheck || fetched)
-					hashes[HashMethod.stringof].hash = getHash!HashMethod;
-				return hashes[HashMethod.stringof];
-			}
-			///ditto
-			public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
-				Hash output;
-				if (HashMethod.stringof in hashes)
-					output = hashes[HashMethod.stringof];
-				if (skipCompleteCheck || fetched)
-					output.hash = getHash!HashMethod;
-				return output;
-			}
-		}
-		private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
-			import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
-			auto hash = makeDigest!HashMethod;
-			hash.put(_content.data);
-			return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
-		}
-		/++
-		 + Whether or not to ignore errors in the server's SSL certificate.
-		 +/
-		ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
-			return ignoreHostCert;
-		}
-		/++
-		 + Whether or not to validate the peer named in the server's SSL cert.
-		 +/
-		ref bool peerVerification() @nogc @safe pure nothrow {
-			return verifyPeer;
-		}
-		/++
-		 + Returns body of response as a string.
-		 +/
-		T content(T = string)() {
-			if (!fetched)
-				fetchContent(false);
-			return contentInternal!T;
-		}
-		/++
-		 +
-		 +/
-		 T content(T = string)() const {
-			import std.exception : enforce;
-			enforce(fetched);
-			return contentInternal!T;
-		 }
-		 private T contentInternal(T = string)() const {
-			import std.encoding : transcode;
-			import std.string : assumeUTF;
-			import std.conv : to;
-			static if (is(T == string)) {
-				static if (!is(ContentType == string)) {
-					string data;
-					transcode(cast(ContentType)_content.data, data);
-					return data;
-				} else
-					return _content.data.assumeUTF;
+	}
+	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
+		import std.digest.digest : toHexString, Order, LetterCase, makeDigest;
+		auto hash = makeDigest!HashMethod;
+		hash.put(_content.data);
+		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
+	}
+	/++
+	 + Whether or not to ignore errors in the server's SSL certificate.
+	 +/
+	ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
+		return ignoreHostCert;
+	}
+	/++
+	 + Whether or not to validate the peer named in the server's SSL cert.
+	 +/
+	ref bool peerVerification() @nogc @safe pure nothrow {
+		return verifyPeer;
+	}
+	/++
+	 + Returns body of response as a string.
+	 +/
+	T content(T = string)() {
+		if (!fetched)
+			fetchContent(false);
+		return contentInternal!T;
+	}
+	/++
+	 +
+	 +/
+	 T content(T = string)() const {
+		import std.exception : enforce;
+		enforce(fetched);
+		return contentInternal!T;
+	 }
+	 private T contentInternal(T = string)() const {
+		import std.encoding : transcode;
+		import std.string : assumeUTF;
+		import std.conv : to;
+		static if (is(T == string)) {
+			static if (!is(ContentType == string)) {
+				string data;
+				transcode(cast(ContentType)_content.data, data);
+				return data;
 			} else
-				return _content.data.to!T;
-		 }
+				return _content.data.assumeUTF;
+		} else
+			return _content.data.to!T;
+	 }
+	/++
+	 + Returns body of response as parsed JSON.
+	 +
+	 + If a type T is specified, an attempt at automatically deserializing
+	 + the JSON as the specified type is made.
+	 +
+	 + Params:
+	 +  T = optional type to attempt deserialization to
+	 +/
+	T json(T = JSONValue)() {
+		import std.string : lastIndexOf;
+		auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
+		auto fixedContent = content[0..a+1]; //temporary hack
+		static if (is(T==JSONValue)) {
+			import std.json: parseJSON;
+			return parseJSON(fixedContent);
+		} else {
+			version(Have_siryul) {
+				import siryul : fromString, JSON;
+				return fixedContent.fromString!(T,JSON);
+			} else
+				assert(0, "Unable to serialize without serialization library");
+		}
+	}
+	version(Have_arsd_dom) {
 		/++
-		 + Returns body of response as parsed JSON.
+		 + Returns body of response as a parsed HTML document.
 		 +
-		 + If a type T is specified, an attempt at automatically deserializing
-		 + the JSON as the specified type is made.
-		 +
-		 + Params:
-		 +  T = optional type to attempt deserialization to
+		 + See arsd.dom for details and usage.
 		 +/
-		T json(T = JSONValue)() {
-			import std.string : lastIndexOf;
-			auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
-			auto fixedContent = content[0..a+1]; //temporary hack
-			static if (is(T==JSONValue)) {
-				import std.json: parseJSON;
-				return parseJSON(fixedContent);
-			} else {
-				version(Have_siryul) {
-					import siryul : fromString, JSON;
-					return fixedContent.fromString!(T,JSON);
-				} else
-					assert(0, "Unable to serialize without serialization library");
-			}
+		Document dom() {
+			return new Document(content);
 		}
-		version(Have_arsd_dom) {
-			/++
-			 + Returns body of response as a parsed HTML document.
-			 +
-			 + See arsd.dom for details and usage.
-			 +/
-			Document dom() {
-				return new Document(content);
-			}
+	}
+	/++
+	 + Performs the request.
+	 +/
+	void perform(bool ignoreStatus = false) {
+		if (!fetched)
+			fetchContent(ignoreStatus);
+	}
+	/++
+	 + Returns headers of response.
+	 +
+	 + Performs the request if not already done.
+	 +/
+	const(URLHeaders) headers() {
+		if (!fetched)
+			fetchContent(true);
+		return _headers;
+	}
+	private void fetchContent(bool ignoreStatus = false) in {
+		assert(maxTries > 0, "Max tries set to zero?");
+	} body {
+		import std.digest.sha : toHexString;
+		import std.exception : enforce;
+		import std.base64, std.conv : to;
+		if (url.hostname !in clientFactory)
+			clientFactory[url.hostname] = CurlHTTP();
+		auto client = clientFactory[url.hostname];
+		scope (exit) {
+			client.onReceiveHeader = null;
+			client.onReceiveStatusLine = null;
+			client.onSend = null;
+			client.handle.onSeek = null;
 		}
-		/++
-		 + Performs the request.
-		 +/
-		void perform(bool ignoreStatus = false) {
-			if (!fetched)
-				fetchContent(ignoreStatus);
+		if (!cookieJar.isNull)
+			client.setCookieJar(cookieJar);
+		if (cookieJar.isNull && !defaultCookieJar.isNull)
+			client.setCookieJar(defaultCookieJar);
+		client.verbose = verbose;
+		client.verifyPeer(false);
+		client.maxRedirects(uint.max);
+		client.clearRequestHeaders();
+		if (!certPath.isNull) {
+			enforce(certPath.exists, "Certificate path not found");
+			client.caInfo = certPath;
+			client.verifyPeer = true;
 		}
-		/++
-		 + Returns headers of response.
-		 +
-		 + Performs the request if not already done.
-		 +/
-		const(URLHeaders) headers() {
-			if (!fetched)
-				fetchContent(true);
-			return _headers;
-		}
-		private void fetchContent(bool ignoreStatus = false) in {
-			assert(maxTries > 0, "Max tries set to zero?");
-		} body {
-			import std.digest.sha : toHexString;
-			import std.exception : enforce;
-			import std.base64, std.conv : to;
-			scope (exit) {
-				client.onReceiveHeader = null;
-    			client.onReceiveStatusLine = null;
-				client.onSend = null;
-				client.handle.onSeek = null;
-			}
-			client.contentLength = contentLength;
-			bool stopWriting = false;
-			if (onReceive is null)
-				client.onReceive = (ubyte[] data) {
-					if (!stopWriting)
-				    	_content ~= data;
-				    return data.length;
-				};
-			else
-				client.onReceive = onReceive;
-			client.handle.onSeek = onSeek;
-			client.onSend = onSend;
-			client.onReceiveHeader = (in char[] key, in char[] value) {
-				if (auto v = key in _headers) {
-						*v ~= ", ";
-						*v ~= value;
-				    } else
-						_headers[key] = value.idup;
+		client.contentLength = contentLength;
+		bool stopWriting = false;
+		if (onReceive is null)
+			client.onReceive = (ubyte[] data) {
+				if (!stopWriting)
+			    	_content ~= data;
+			    return data.length;
 			};
-			client.connectTimeout(timeout);
-			client.verifyPeer(!verifyPeer);
-			client.verifyHost(!ignoreHostCert);
-			client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
-			uint redirectCount = 0;
-			Exception lastException;
-			client.clearRequestHeaders();
-			foreach (key, value; outHeaders)
-				client.addRequestHeader(key, value);
-			foreach (trial; 0..maxTries) {
-				stopWriting = false;
-				client.url = url.toString();
-				client.method = method;
-				try {
-					_content = _content.init;
-					_headers = null;
-					client.perform();
-					stopWriting = true;
-					if ("content-disposition" in _headers) {
-						immutable disposition = parseDispositionString(_headers["content-disposition"]);
-						if (!disposition.filename.isNull)
-							overriddenFilename = disposition.filename;
-					}
-					if ("content-md5" in _headers)
-						enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
-					if ("content-length" in _headers)
-						enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
-					if (!sizeExpected.isNull)
-						enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
-					if (checkNoContent)
-						enforce(_content.data.length > 0, new HTTPException("No data received"));
-					if (!ignoreStatus)
-						enforce(statusCode < 300, new StatusException(statusCode));
-					if (!md5(true).original.isNull())
-						enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
-					if (!sha1(true).original.isNull())
-						enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
-					fetched = true;
-					return;
-				} catch (CurlException e) {
-					lastException = e;
-				} catch (StatusException e) {
-					with(HTTPStatus) switch (statusCode) {
-						case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
-							enforce(redirectCount++ < 5, e);
-							url = url.absoluteURL(_headers["location"]);
-							if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
-								method = CurlHTTP.Method.get;
-							break;
-						case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
-							break;
-						default:
-							throw new StatusException(statusCode);
-					}
-					lastException = e;
-				} catch (HTTPException e) {
-					lastException = e;
+		else
+			client.onReceive = onReceive;
+		client.handle.onSeek = onSeek;
+		client.onSend = onSend;
+		client.onReceiveHeader = (in char[] key, in char[] value) {
+			if (auto v = key in _headers) {
+					*v ~= ", ";
+					*v ~= value;
+			    } else
+					_headers[key] = value.idup;
+		};
+		client.connectTimeout(timeout);
+		client.verifyPeer(!verifyPeer);
+		client.verifyHost(!ignoreHostCert);
+		client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
+		uint redirectCount = 0;
+		Exception lastException;
+		client.clearRequestHeaders();
+		foreach (key, value; outHeaders)
+			client.addRequestHeader(key, value);
+		foreach (trial; 0..maxTries) {
+			stopWriting = false;
+			client.url = url.toString();
+			client.method = method;
+			try {
+				_content = _content.init;
+				_headers = null;
+				client.perform();
+				stopWriting = true;
+				if ("content-disposition" in _headers) {
+					immutable disposition = parseDispositionString(_headers["content-disposition"]);
+					if (!disposition.filename.isNull)
+						overriddenFilename = disposition.filename;
 				}
+				if ("content-md5" in _headers)
+					enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
+				if ("content-length" in _headers)
+					enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+				if (!sizeExpected.isNull)
+					enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+				if (checkNoContent)
+					enforce(_content.data.length > 0, new HTTPException("No data received"));
+				if (!ignoreStatus)
+					enforce(statusCode < 300, new StatusException(statusCode));
+				if (!md5(true).original.isNull())
+					enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
+				if (!sha1(true).original.isNull())
+					enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
+				fetched = true;
+				return;
+			} catch (CurlException e) {
+				lastException = e;
+			} catch (StatusException e) {
+				with(HTTPStatus) switch (statusCode) {
+					case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
+						enforce(redirectCount++ < 5, e);
+						url = url.absoluteURL(_headers["location"]);
+						if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
+							method = CurlHTTP.Method.get;
+						break;
+					case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
+						break;
+					default:
+						throw new StatusException(statusCode);
+				}
+				lastException = e;
+			} catch (HTTPException e) {
+				lastException = e;
 			}
-			throw lastException;
 		}
+		throw lastException;
 	}
 }
 /++
@@ -760,7 +660,7 @@ unittest {
  + A useless HTTP request for testing
  +/
 auto nullResponse() {
-	return httpfactory.get(URL(URL.Proto.HTTP, "localhost", "/"));
+	return get(URL(URL.Proto.HTTP, "localhost", "/"));
 }
 /++
  + Exception thrown when an unexpected status is encountered.
@@ -819,6 +719,10 @@ class HTTPException : Exception {
 		super(msg, file, line);
 	}
 }
+//Test to ensure initial construction is safe, pure, and nothrow
+/+@safe pure nothrow+/ unittest {
+	get(URL(URL.Proto.HTTP, "localhost", "/"));
+}
 version(online) unittest {
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
@@ -826,116 +730,115 @@ version(online) unittest {
 	enum testURL = URL("http://misc.herringway.pw/.test.php");
 	enum testHeaders = ["Referer": testURL.hostname];
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
 		assertNotThrown(req.status, "MD5 failure (lowercase)");
 		assert(req.isComplete);
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC8";
 		assertNotThrown(req.status, "MD5 failure (uppercase)");
 		assert(req.isComplete);
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.sha1 = "f030bbbd32966cde41037b98a8849c46b76e4bc1";
 		assertNotThrown(req.status, "SHA1 failure (lowercase)");
 		assert(req.isComplete);
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC1";
 		assertNotThrown(req.status, "SHA1 failure (uppercase)");
 		assert(req.isComplete);
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC9";
 		assertThrown(req.status, "Bad MD5 (incorrect hash)");
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		assertThrown(req.md5 = "", "Bad MD5 (empty string)");
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		assertThrown(req.md5 = "BAD", "Bad MD5 (BAD)");
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		assertThrown(req.sha1 = "BAD", "Bad SHA1 (BAD)");
 	}
 	{
-		auto req = httpfactory.get(testURL);
+		auto req = get(testURL);
 		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC2";
 		assertThrown(req.status, "Bad SHA1 (incorrect hash)");
 	}
  	{
- 		auto req = httpfactory.get(testURL);
+ 		auto req = get(testURL);
  		req.expectedSize = 3;
  		assertNotThrown(req.status, "Expected size failure (correct size given)");
 		assert(req.isComplete);
- 		req = httpfactory.get(testURL);
+ 		req = get(testURL);
  		req.expectedSize = 4;
  		assertThrown(req.status, "Expected size failure (intentional bad size)");
  	}
 	{
-		auto req = httpfactory.post(testURL, "hi");
+		auto req = post(testURL, "hi");
 		req.guaranteedData = true;
 		assertNotThrown(req.status);
 		assert(req.isComplete);
 	}
 	{
-		auto req = httpfactory.post(testURL, "");
+		auto req = post(testURL, "");
 		req.guaranteedData = true;
 		assertThrown(req.status);
 	}
 	{
-		auto req = httpfactory.get(testURL, testHeaders);
+		auto req = get(testURL, testHeaders);
 		assert(req.content == "GET", "GET URL failure");
 		assert(req.status == HTTPStatus.OK, "200 status undetected");
 		assert(req.isComplete);
 	}
-	assert(httpfactory.get(testURL.withParams(["301":""])).content == "GET");
-	assert(httpfactory.get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
-	assert(httpfactory.get(testURL.withParams(["302":""])).content == "GET");
-	assert(httpfactory.get(testURL.withParams(["302":""])).status == HTTPStatus.Found, "302 error undetected");
-	assert(httpfactory.get(testURL.withParams(["303":""])).content == "GET");
-	assert(httpfactory.get(testURL.withParams(["303":""])).status == HTTPStatus.SeeOther, "303 error undetected");
-	assert(httpfactory.get(testURL.withParams(["307":""])).content == "GET");
-	assert(httpfactory.get(testURL.withParams(["307":""])).status == HTTPStatus.TemporaryRedirect, "307 error undetected");
-	assert(httpfactory.get(testURL.withParams(["308":""])).content == "GET");
-	assertThrown(httpfactory.get(testURL.withParams(["403":""])).perform());
-	assert(httpfactory.get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
-	assertThrown(httpfactory.get(testURL.withParams(["404":""])).perform());
-	assert(httpfactory.get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
-	assertThrown(httpfactory.get(testURL.withParams(["500":""])).perform());
-	assert(httpfactory.get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
-	assert(httpfactory.post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
+	assert(get(testURL.withParams(["301":""])).content == "GET");
+	assert(get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
+	assert(get(testURL.withParams(["302":""])).content == "GET");
+	assert(get(testURL.withParams(["302":""])).status == HTTPStatus.Found, "302 error undetected");
+	assert(get(testURL.withParams(["303":""])).content == "GET");
+	assert(get(testURL.withParams(["303":""])).status == HTTPStatus.SeeOther, "303 error undetected");
+	assert(get(testURL.withParams(["307":""])).content == "GET");
+	assert(get(testURL.withParams(["307":""])).status == HTTPStatus.TemporaryRedirect, "307 error undetected");
+	assert(get(testURL.withParams(["308":""])).content == "GET");
+	assertThrown(get(testURL.withParams(["403":""])).perform());
+	assert(get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
+	assertThrown(get(testURL.withParams(["404":""])).perform());
+	assert(get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
+	assertThrown(get(testURL.withParams(["500":""])).perform());
+	assert(get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
+	assert(post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
 
 	{
-		auto req = httpfactory.get(testURL.withParams(["saveas":"example"]));
+		auto req = get(testURL.withParams(["saveas":"example"]));
 		req.perform();
 		assert(req.filename == "example", "content-disposition failure");
 	}
 	{
-		auto req = httpfactory.get(testURL.withParams(["PRINTHEADER": ""]));
+		auto req = get(testURL.withParams(["PRINTHEADER": ""]));
 		req.outHeaders["echo"] = "hello world";
 		assert(req.content == "hello world", "adding header failed");
 	}
 	enum testDownloadURL = URL("http://misc.herringway.pw/whack.gif");
-	auto a1 = httpfactory.get(testDownloadURL);
+	auto a1 = get(testDownloadURL);
 	scope(exit) if (exists("whack.gif")) remove("whack.gif");
 	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
 	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
 	a1.saveTo("whack.gif");
 	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
 	a1.saveTo("whack2.gif");
-	auto resp1 = httpfactory.post(testURL.withParams(["1": ""]), "beep1");
-	auto resp2 = httpfactory.post(testURL.withParams(["2": ""]), "beep2");
+	auto resp1 = post(testURL.withParams(["1": ""]), "beep1");
+	auto resp2 = post(testURL.withParams(["2": ""]), "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp1.content == "beep1");
-	debug writefln("Spawned %d instances.", httpfactory.spawn(testURL).numInstances);
 }
