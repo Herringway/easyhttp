@@ -2,7 +2,6 @@ module easyhttp.url;
 
 alias URLParameters = string[][string];
 alias URLHeaders = string[string];
-alias URLString = string;
 
 import std.algorithm;
 import std.array;
@@ -109,7 +108,7 @@ struct URL {
 	/++
 	 + Constructor for URL strings
 	 +/
-	this(T)(URLString str, T inParams) if (isURLEncodable!T) {
+	this(T)(string str, T inParams) if (isURLEncodable!T) {
 		this(str);
 		foreach (key, values; urlEncodeInternal(inParams)) {
 			this.params[decodeComponent(key)] = [];
@@ -118,7 +117,7 @@ struct URL {
 		}
 	}
 	///ditto
-	this(URLString str) @safe nothrow {
+	this(string str) @safe nothrow {
 		this.protocol = str.urlProtocol;
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
