@@ -155,37 +155,35 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 	auto result = Request!T(inURL);
 	result.method = CurlHTTP.Method.post;
 	result.onReceive = null;
-	{
-		static if (is(U == ubyte[]))
-			auto dataCopy = data;
-		else static if (is(U == string))
-			auto dataCopy = data.representation.dup;
-		else static if (isURLEncodable!U)
-			auto dataCopy = urlencode(data).representation.dup;
-		result.contentLength = cast(uint)dataCopy.length;
-		auto remainingData = dataCopy;
-	    result.onSend = delegate size_t(void[] buf)
-	    {
-	        size_t minLen = min(buf.length, remainingData.length);
-	        if (minLen == 0) return 0;
-	        buf[0..minLen] = remainingData[0..minLen];
-	        remainingData = remainingData[minLen..$];
-	        return minLen;
-	    };
-	    result.onSeek = delegate(long offset, CurlSeekPos mode)
-	    {
-	        switch (mode)
-	        {
-	            case CurlSeekPos.set:
-	                remainingData = dataCopy[cast(size_t)offset..$];
-	                return CurlSeek.ok;
-	            default:
-	                // As of curl 7.18.0, libcurl will not pass
-	                // anything other than CurlSeekPos.set.
-	                return CurlSeek.cantseek;
-	        }
-	    };
-	}
+	static if (is(U == ubyte[]))
+		auto dataCopy = data;
+	else static if (is(U == string))
+		auto dataCopy = data.representation.dup;
+	else static if (isURLEncodable!U)
+		auto dataCopy = urlEncode(data).representation.dup;
+	result.contentLength = cast(uint)dataCopy.length;
+	auto remainingData = dataCopy;
+    result.onSend = delegate size_t(void[] buf)
+    {
+        size_t minLen = min(buf.length, remainingData.length);
+        if (minLen == 0) return 0;
+        buf[0..minLen] = remainingData[0..minLen];
+        remainingData = remainingData[minLen..$];
+        return minLen;
+    };
+    result.onSeek = delegate(long offset, CurlSeekPos mode)
+    {
+        switch (mode)
+        {
+            case CurlSeekPos.set:
+                remainingData = dataCopy[cast(size_t)offset..$];
+                return CurlSeek.ok;
+            default:
+                // As of curl 7.18.0, libcurl will not pass
+                // anything other than CurlSeekPos.set.
+                return CurlSeek.cantseek;
+        }
+    };
 	result.outHeaders = headers;
 	return result;
 }
