@@ -9,6 +9,7 @@ import std.base64;
 import std.conv;
 import std.datetime;
 import std.digest.digest;
+import std.digest.hmac;
 import std.digest.md;
 import std.digest.sha;
 import std.encoding;
@@ -23,6 +24,7 @@ import std.regex;
 import std.stdio;
 import std.string;
 import std.typecons;
+import std.uri;
 import std.utf;
 
 import easyhttp.fs;
@@ -131,6 +133,7 @@ enum HTTPStatus : ushort {
 	NotExtended = 510,
 	NetworkAuthenticationRequired = 511
 }
+enum OAuthMethod { header, queryString, form }
 immutable Nullable!(string, "") systemCertPath;
 static this() {
 	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
@@ -333,40 +336,57 @@ struct Request(ContentType) {
 	void addHeader(string key, string val) @safe pure nothrow {
 		outHeaders[key] = val;
 	}
-	enum OAuthMethod {Header, URL, Form }
 	/++
 	 + Adds an OAuth bearer token to the request.
 	 +
 	 + Valid methods are OAuthMethod.Header.
 	 +/
-	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.Header) {
+	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) {
 		bearerToken = token;
-		if (method == OAuthMethod.Header)
+		if (method == OAuthMethod.header)
 			addHeader("Authorization", "Bearer "~token);
 	}
-	/+void oauth(in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
+	void oauth(Hash = SHA1)(OAuthMethod oauthMethod, in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
+		static if (is(Hash == SHA1))
+			enum hashType = "SHA1";
+		else static if (is(Hash == MD5))
+			enum hashType = "MD5";
+		else static assert(0, "Unknown hash");
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 		URLParameters params;
-		auto copy_url = URL(url.protocol, url.hostname, url.Path, url.params);
+		auto copy_url = URL(url.protocol, url.hostname, url.path, url.params);
 		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.consumerToken];
 		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.token];
-		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [to!string(uniform(uint.min, uint.max)) ~ to!string(Clock.currTime().stdTime)];
-		//params["oauth_nonce"] = copy_url.params["oauth_nonce"] = "1771511773635420822306363698";
-		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-SHA1"];
-		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [to!string(Clock.currTime().toUTC().toUnixTime())];
-		//params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = "1406485430";
+		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text];
+		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-"~hashType];
+		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [Clock.currTime().toUTC().toUnixTime().text];
 		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
-		string signature = [std.uri.encodeComponent(oAuthParams.consumerSecret), std.uri.encodeComponent(oAuthParams.tokenSecret)].join("&");
-		//writeln(signature, "\n", [std.uri.encodeComponent(text(method).toUpper()), std.uri.encodeComponent(copy_url.str), std.uri.encodeComponent(copy_url.paramString)].join("&"));
-		params["oauth_signature"] = [Base64.encode(HMAC!SHA1(signature, std.uri.encodeComponent(text(method).toUpper())~"&"~std.uri.encodeComponent(copy_url.toString(false))~"&"~std.uri.encodeComponent(copy_url.paramString)))];
-		params["realm"] = [""];
+		string signature = [encodeComponent(oAuthParams.consumerSecret), encodeComponent(oAuthParams.tokenSecret)].join("&");
+		auto signer = HMAC!Hash(signature.representation);
+		auto baseString = only(encodeComponent(method.text.toUpper()), encodeComponent(copy_url.toString(false)), encodeComponent(copy_url.paramString)).map!representation.joiner("&".representation);
 
-		string[] authString;
-		foreach (k,dv; params)
-			foreach (v; dv)
-				authString ~= format(`%s="%s"`, k, std.uri.encodeComponent(v));
-		AddHeader("Authorization", "OAuth " ~ authString.join(", "));
-	}+/
+		put(signer, baseString);
+
+		params["oauth_signature"] = [Base64.encode(signer.finish())];
+		params["realm"] = [""];
+		if (oauthMethod == OAuthMethod.header) {
+			string[] authString;
+			foreach (k, dv; params)
+				foreach (v; dv)
+					authString ~= format(`%s="%s"`, k, encodeComponent(v).replace("+", "%2B"));
+			addHeader("Authorization", "OAuth " ~ authString.join(", "));
+		}
+		if (oauthMethod == OAuthMethod.queryString) {
+			enforce(!url.isNull, "can't add oauth params to nonexistant URL");
+			url.params["oauth_version"] = ["1.0"];
+			url.params["oauth_signature"] = params["oauth_signature"];
+			url.params["oauth_signature_method"] = params["oauth_signature_method"];
+			url.params["oauth_nonce"] = params["oauth_nonce"];
+			url.params["oauth_timestamp"] = params["oauth_timestamp"];
+			url.params["oauth_consumer_key"] = params["oauth_consumer_key"];
+			url.params["oauth_token"] = params["oauth_token"];
+		}
+	}
 	/++
 	 + The expected size of the body if available.
 	 +
@@ -803,6 +823,18 @@ version(online) unittest {
 		assert(req.content == "GET", "GET URL failure");
 		assert(req.status == HTTPStatus.OK, "200 status undetected");
 		assert(req.isComplete);
+	}
+	{ //Oauth: header
+		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
+		assert(req.content == "success=true", "oauth failure:"~req.content);
+		assert(req.status == HTTPStatus.OK, "OAuth failure");
+	}
+	{ //Oauth: querystring
+		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
+		assert(req.content == "success=true", "oauth failure:"~req.content);
+		assert(req.status == HTTPStatus.OK, "OAuth failure");
 	}
 	assert(get(testURL.withParams(["301":""])).content == "GET");
 	assert(get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
