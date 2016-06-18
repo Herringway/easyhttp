@@ -177,7 +177,7 @@ struct URL {
 		} catch (Exception e) {
 			return "";
 		}
-		return "?"~parameterPrintable.join("&");
+		return parameterPrintable.sort().join("&");
 	}
 	/++
 	 + Transforms the specified relative URL to an absolute one.
@@ -238,7 +238,7 @@ struct URL {
 			if (paramString() != "") {
 				if (path == path.init)
 					output ~= "/";
-				output ~= paramString();
+				output ~= "?"~paramString();
 			}
 		}
 		return output;
@@ -266,6 +266,7 @@ struct URL {
 				if (paramString() != "") {
 					if (path == path.init)
 						sink("/");
+					sink("?");
 					sink(paramString());
 				}
 				break;
