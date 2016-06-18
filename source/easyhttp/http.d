@@ -164,11 +164,11 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 		auto dataCopy = data.representation.dup;
 	else static if (isURLEncodable!U)
 		auto dataCopy = urlEncode(data).representation.dup;
-	result.contentLength = cast(uint)dataCopy.length;
+	result.contentLength = dataCopy.length;
 	auto remainingData = dataCopy;
     result.onSend = delegate size_t(void[] buf)
     {
-        size_t minLen = min(buf.length, remainingData.length);
+        immutable size_t minLen = min(buf.length, remainingData.length);
         if (minLen == 0) return 0;
         buf[0..minLen] = remainingData[0..minLen];
         remainingData = remainingData[minLen..$];
@@ -225,7 +225,7 @@ struct Request(ContentType) {
 	package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
 	package size_t delegate(void[] buf) onSend;
 	///Length of the data in the body
-	uint contentLength;
+	ulong contentLength;
 	package CurlHTTP.Method method;
 	private OAuthParams oAuthParams;
 	///The HTTP status code last seen
