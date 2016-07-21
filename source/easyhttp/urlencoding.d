@@ -38,31 +38,31 @@ unittest {
 	}
 	{
 		auto result = urlEncode(Beep("treeee&", 3, [1,2,5]));
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 	{
 		auto result = urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]);
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 	{
 		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
 		auto result = urlEncode(constTest);
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 	{
 		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
 		auto result = urlEncode(immutableTest);
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 	{
 		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
 		auto result = urlEncode(constTest);
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 	{
 		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
 		auto result = urlEncode(immutableTest);
-		assert((result == "a=treeee%26&b=3&c=1%2C2%2C5") || (result == "b=3&a=treeee%26&c=1%2C2%2C5") || (result == "b=3&c=1%2C2%2C5&a=treeee%26") || (result == "c=1%2C2%2C5&b=3&a=treeee%26") || (result == "c=1%2C2%2C5&a=treeee%26&b=3") || (result == "a=treeee%26&c=1%2C2%2C5&b=3"));
+		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 }
 package string[][string] urlEncodeAssoc(in string[][string] value) {
