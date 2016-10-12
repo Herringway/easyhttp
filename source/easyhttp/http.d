@@ -414,7 +414,7 @@ struct Request(ContentType) {
 		void hash(immutable(char)[2*digestLength!HashMethod] str) @safe pure nothrow in {
 			assert(str.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
 		} body {
-			hashes[HashMethod.stringof] = assumeWontThrow(Hash(str.toUpper().dup));
+			hashes[HashMethod.stringof] = assumeWontThrow(Hash(str[].toUpper().dup));
 		}
 		/++
 		 + Gets the hash of the request body.
