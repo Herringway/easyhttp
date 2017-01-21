@@ -154,6 +154,10 @@ auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 	result.outHeaders = headers;
 	return result;
 }
+@safe pure nothrow unittest {
+	auto get1 = get(URL(URL.Proto.HTTPS, "localhost"));
+	auto get2 = get(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
+}
 auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
 	auto result = Request!T(inURL);
 	result.method = CurlHTTP.Method.post;
@@ -189,6 +193,13 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
     };
 	result.outHeaders = headers;
 	return result;
+}
+@safe pure nothrow unittest {
+	auto post1 = post(URL(URL.Proto.HTTPS, "localhost"), "");
+	auto post2 = post(URL(URL.Proto.HTTPS, "localhost"), "", ["":""]);
+	//TODO: Fix safety/purity issues
+	//auto post3 = post(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
+	//auto post4 = post(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
 }
 /++
  + An HTTP Request.
