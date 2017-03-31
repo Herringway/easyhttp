@@ -135,6 +135,12 @@ enum HTTPStatus : ushort {
 	NetworkAuthenticationRequired = 511
 }
 enum OAuthMethod { header, queryString, form }
+struct Cookie {
+	string domain;
+	string path;
+	string key;
+	string value;
+}
 immutable Nullable!(string, "") systemCertPath;
 static this() {
 	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
@@ -201,6 +207,7 @@ struct Request(ContentType) {
 	private const(ubyte)[] _content;
 	private URLHeaders _headers;
 	private URLHeaders outHeaders;
+	private Cookie[] outCookies;
 	private Nullable!size_t sizeExpected;
 	private bool fetched = false;
 	private bool checkNoContent = false;
@@ -224,6 +231,7 @@ struct Request(ContentType) {
 	bool peerVerification = true;
 	///Whether to output verbose debugging information to stdout
 	bool verbose;
+	Cookie[] cookies;
 	ubyte[] postData;
 
 	private Nullable!string outFile;
@@ -530,6 +538,12 @@ struct Request(ContentType) {
 		if (!outFile.isNull) {
 			req.useStreaming = true;
 		}
+		requests.Cookie[] reqCookies;
+		foreach (cookie; cookies) {
+			alias ReqCookie = requests.Cookie;
+			reqCookies ~= ReqCookie(cookie.path, cookie.domain, cookie.key, cookie.value);
+		}
+		req.cookie(reqCookies);
 		Response response;
 		final switch(method) {
 			case HTTPMethod.post:
@@ -553,6 +567,9 @@ struct Request(ContentType) {
 		}
 		statusCode = cast(HTTPStatus)response.code;
 		_headers = response.responseHeaders;
+		foreach (cookie; req.cookie) {
+			outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
+		}
 		if ("content-disposition" in _headers) {
 			immutable disposition = parseDispositionString(_headers["content-disposition"]);
 			if (!disposition.filename.isNull)
@@ -820,5 +837,10 @@ version(online) unittest {
 		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
 		assert(req.content == "success=true", "oauth failure:"~req.content);
 		assert(req.status == HTTPStatus.OK, "OAuth failure");
+	}
+	{ //Cookies
+		auto req = get(testURL.withParams(["printCookie": "testCookie"]));
+		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
+		assert(req.content == "something");
 	}
 }
