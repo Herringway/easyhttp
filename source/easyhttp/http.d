@@ -35,11 +35,6 @@ version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 enum packageName = "easyhttp";
 enum packageVersion = "v0.0.0";
 
-///Default number of times to retry a request
-enum defaultMaxTries = 5;
-
-Nullable!string defaultCookieJar;
-
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
@@ -203,14 +198,12 @@ struct Request(ContentType) {
 		string tokenSecret;
 	}
 	private string bearerToken;
-	private Appender!(const(ubyte)[]) _content;
+	private const(ubyte)[] _content;
 	private URLHeaders _headers;
 	private URLHeaders outHeaders;
 	private Nullable!size_t sizeExpected;
 	private bool fetched = false;
 	private bool checkNoContent = false;
-	///Maximum number of tries to retry the request
-	uint maxTries = defaultMaxTries;
 	///Maximum time to wait for the request to complete
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
@@ -225,8 +218,6 @@ struct Request(ContentType) {
 	Nullable!string overriddenFilename;
 	///Certificate root store
 	Nullable!string certPath;
-	///Path to store cookies
-	Nullable!string cookieJar;
 	///Whether or not to ignore errors in the server's SSL certificate
 	bool ignoreHostCert = false;
 	///Whether or not to verify the certificate for HTTPS connections
@@ -255,7 +246,7 @@ struct Request(ContentType) {
 	 + Reset the state of this request.
 	 +/
 	void reset() nothrow pure @safe {
-		_content = _content.init;
+		_content = [];
 		_headers = null;
 		fetched = false;
 	}
@@ -304,7 +295,7 @@ struct Request(ContentType) {
 				writeFile.flush();
 				writeFile.close();
 			}
-			writeFile.rawWrite(_content.data);
+			writeFile.rawWrite(_content);
 		}
 		return output;
 	}
@@ -436,7 +427,7 @@ struct Request(ContentType) {
 	}
 	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
 		auto hash = makeDigest!HashMethod;
-		hash.put(_content.data);
+		hash.put(_content);
 		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 	}
 	/++
@@ -464,12 +455,12 @@ struct Request(ContentType) {
 		static if (is(T == string)) {
 			static if (!is(ContentType == string)) {
 				string data;
-				transcode(cast(ContentType)_content.data, data);
+				transcode(cast(ContentType)_content, data);
 				return data;
 			} else
-				return _content.data.assumeUTF;
+				return _content.assumeUTF;
 		} else
-			return _content.data.to!T;
+			return _content.to!T;
 	 }
 	/++
 	 + Returns body of response as parsed JSON.
@@ -522,7 +513,6 @@ struct Request(ContentType) {
 	}
 	//fetch content using requests library
 	private void fetchContent(bool ignoreStatus = false) in {
-		assert(maxTries > 0, "Max tries set to zero?");
 		assert(!url.isNull, "URL not set");
 	} body {
 		import requests;
@@ -535,7 +525,6 @@ struct Request(ContentType) {
 			enforce(certPath.exists, "Certificate path not found");
 			req.sslSetCaCert(certPath);
 		}
-		//req.clearHeaders();
 		req.addHeaders(outHeaders);
 		req.sslSetVerifyPeer(peerVerification);
 		if (!outFile.isNull) {
@@ -560,7 +549,7 @@ struct Request(ContentType) {
 		if (!outFile.isNull) {
 			response.receiveAsRange().copy(File(outFile, "wb").lockingBinaryWriter);
 		} else {
-			_content ~= response.responseBody;
+			_content = response.responseBody.data;
 		}
 		statusCode = cast(HTTPStatus)response.code;
 		_headers = response.responseHeaders;
@@ -576,7 +565,7 @@ struct Request(ContentType) {
 			if (!outFile.isNull) {
 				enforce(File(outFile, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
 			} else {
-				enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+				enforce(_content.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 			}
 		}
 		if (!md5(true).original.isNull()) {
@@ -586,10 +575,10 @@ struct Request(ContentType) {
 			enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
 		}
 		if (!sizeExpected.isNull) {
-			enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+			enforce(_content.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
 		}
 		if (checkNoContent) {
-			enforce(_content.data.length > 0, new HTTPException("No data received"));
+			enforce(_content.length > 0, new HTTPException("No data received"));
 		}
 		if (!ignoreStatus) {
 			enforce(statusCode < 300, new StatusException(statusCode, url));
