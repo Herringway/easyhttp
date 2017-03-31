@@ -6,7 +6,11 @@
 	"dependencies": {
 		"libcurl": ">=7.34.0",
 		"arsd:dom": ">=0.1.0",
-		"siryul": "~>0.2"
+		"siryul": "~>0.2",
+		"requests": "~>0.4.0"
+	},
+	"subConfigurations": {
+	    "requests": "vibed"
 	},
 	"configurations": [
 		{

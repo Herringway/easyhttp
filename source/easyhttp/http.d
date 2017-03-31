@@ -1,7 +1,6 @@
 module easyhttp.http;
 
 import core.time;
-import etc.c.curl;
 
 import std.algorithm;
 import std.array;
@@ -16,7 +15,6 @@ import std.encoding;
 import std.exception;
 import std.file;
 import std.json;
-import std.net.curl : CurlException, CurlHTTP = HTTP;
 import std.path;
 import std.random;
 import std.range;
@@ -34,6 +32,9 @@ import easyhttp.urlencoding;
 version(Have_arsd_dom) public import arsd.dom : Document, Element;
 version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
 
+enum packageName = "easyhttp";
+enum packageVersion = "v0.0.0";
+
 ///Default number of times to retry a request
 enum defaultMaxTries = 5;
 
@@ -48,15 +49,20 @@ public alias RequestType(T) = Request!T;
 public string[] extraCurlCertSearchPaths = [];
 
 enum HTTPMethod {
-	GET,
-	HEAD,
-	POST,
-	PUT,
-	DELETE,
-	TRACE,
-	OPTIONS,
-	CONNECT,
-	PATCH
+	get,
+	head,
+	post,
+	put,
+	delete_,
+	trace,
+	options,
+	connect,
+	patch
+}
+enum POSTStyle {
+	xWWWFormUrlencoded,
+	formData,
+	raw
 }
 enum HTTPStatus : ushort {
 	//1xx - Informational
@@ -145,12 +151,10 @@ static this() {
 			break;
 		}
 }
-CurlHTTP[string] clientFactory;
 
 auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 	auto result = Request!T(inURL);
-	result.method = CurlHTTP.Method.get;
-	result.onReceive = null;
+	result.method = HTTPMethod.get;
 	result.outHeaders = headers;
 	return result;
 }
@@ -160,8 +164,7 @@ auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 }
 auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
 	auto result = Request!T(inURL);
-	result.method = CurlHTTP.Method.post;
-	result.onReceive = null;
+	result.method = HTTPMethod.post;
 	static if (is(U == ubyte[]))
 		auto dataCopy = data;
 	else static if (is(U == string))
@@ -169,28 +172,8 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 	else static if (isURLEncodable!U)
 		auto dataCopy = urlEncode(data).representation.dup;
 	result.contentLength = dataCopy.length;
-	auto remainingData = dataCopy;
-    result.onSend = delegate size_t(void[] buf)
-    {
-        immutable size_t minLen = min(buf.length, remainingData.length);
-        if (minLen == 0) return 0;
-        buf[0..minLen] = remainingData[0..minLen];
-        remainingData = remainingData[minLen..$];
-        return minLen;
-    };
-    result.onSeek = delegate(long offset, CurlSeekPos mode)
-    {
-        switch (mode)
-        {
-            case CurlSeekPos.set:
-                remainingData = dataCopy[cast(size_t)offset..$];
-                return CurlSeek.ok;
-            default:
-                // As of curl 7.18.0, libcurl will not pass
-                // anything other than CurlSeekPos.set.
-                return CurlSeek.cantseek;
-        }
-    };
+	result.postData = dataCopy;
+	//auto remainingData = dataCopy;
 	result.outHeaders = headers;
 	return result;
 }
@@ -232,12 +215,9 @@ struct Request(ContentType) {
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
 	Nullable!URL url;
-	package size_t delegate(ubyte[]) onReceive;
-	package CurlSeek delegate(long offset, CurlSeekPos mode) onSeek;
-	package size_t delegate(void[] buf) onSend;
 	///Length of the data in the body
 	ulong contentLength;
-	package CurlHTTP.Method method;
+	package HTTPMethod method;
 	private OAuthParams oAuthParams;
 	///The HTTP status code last seen
 	HTTPStatus statusCode;
@@ -253,13 +233,16 @@ struct Request(ContentType) {
 	bool peerVerification = true;
 	///Whether to output verbose debugging information to stdout
 	bool verbose;
+	ubyte[] postData;
+
+	private Nullable!string outFile;
 	invariant() {
 		if (!url.isNull)
 			assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
 	}
 	private this(URL initial) nothrow {
 		if ("User-Agent" !in outHeaders)
-			outHeaders["User-Agent"] = "curlOO ("~LIBCURL_VERSION~")";
+			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
 		url = initial;
 	}
 	/++
@@ -309,18 +292,20 @@ struct Request(ContentType) {
 		if (!exists(dest.dirName()))
 			mkdirRecurse(dest.dirName());
 		dest = dest.fixPath();
-		auto outFile = File(dest, "wb");
-		scope(exit)
-			if (outFile.isOpen) {
-				outFile.flush();
-				outFile.close();
-			}
-		onReceive = (ubyte[] data) { _content ~= data; outFile.rawWrite(data); return data.length; };
-		outFile.seek(0);
-		if (!fetched)
+		if (!fetched) {
+			outFile = dest;
 			fetchContent();
-		else
-			outFile.rawWrite(_content.data);
+		}
+		else {
+			auto writeFile = File(dest, "wb");
+
+		scope(exit)
+			if (writeFile.isOpen) {
+				writeFile.flush();
+				writeFile.close();
+			}
+			writeFile.rawWrite(_content.data);
+		}
 		return output;
 	}
 	/++
@@ -535,112 +520,81 @@ struct Request(ContentType) {
 			fetchContent(true);
 		return _headers;
 	}
+	//fetch content using requests library
 	private void fetchContent(bool ignoreStatus = false) in {
 		assert(maxTries > 0, "Max tries set to zero?");
 		assert(!url.isNull, "URL not set");
 	} body {
-		if (url.hostname !in clientFactory)
-			clientFactory[url.hostname] = CurlHTTP();
-		auto client = clientFactory[url.hostname];
-		scope (exit) {
-			client.onReceiveHeader = null;
-			client.onReceiveStatusLine = null;
-			client.onSend = null;
-			client.handle.onSeek = null;
-		}
-		if (!cookieJar.isNull)
-			client.setCookieJar(cookieJar);
-		if (cookieJar.isNull && !defaultCookieJar.isNull)
-			client.setCookieJar(defaultCookieJar);
-		client.verbose = verbose;
-		client.verifyPeer = peerVerification;
-		client.verifyHost = !ignoreHostCert;
-		client.maxRedirects = uint.max;
-		client.clearRequestHeaders();
+		import requests;
+		auto req = requests.Request();
+		req.verbosity = verbose ? 2 : 0;
 		if (!systemCertPath.isNull) {
-			client.caInfo = systemCertPath;
+			req.sslSetCaCert(systemCertPath);
 		}
 		if (!certPath.isNull) {
 			enforce(certPath.exists, "Certificate path not found");
-			client.caInfo = certPath;
+			req.sslSetCaCert(certPath);
 		}
-		client.contentLength = contentLength;
-		bool stopWriting = false;
-		if (onReceive is null)
-			client.onReceive = (ubyte[] data) {
-				if (!stopWriting)
-			    	_content ~= data;
-			    return data.length;
-			};
-		else
-			client.onReceive = onReceive;
-		client.handle.onSeek = onSeek;
-		client.onSend = onSend;
-		client.onReceiveHeader = (in char[] key, in char[] value) {
-			if (auto v = key in _headers) {
-				*v ~= ", ";
-				*v ~= value;
-		    } else
-				_headers[key] = value.idup;
-		};
-		client.connectTimeout(timeout);
-		client.onReceiveStatusLine = (CurlHTTP.StatusLine line) { statusCode = cast(HTTPStatus)line.code; };
-		uint redirectCount = 0;
-		Exception lastException;
-		client.clearRequestHeaders();
-		foreach (key, value; outHeaders)
-			client.addRequestHeader(key, value);
-		foreach (trial; 0..maxTries) {
-			stopWriting = false;
-			client.url = url.text;
-			client.method = method;
-			try {
-				_content = _content.init;
-				_headers = null;
-				client.perform();
-				stopWriting = true;
-				if ("content-disposition" in _headers) {
-					immutable disposition = parseDispositionString(_headers["content-disposition"]);
-					if (!disposition.filename.isNull)
-						overriddenFilename = disposition.filename;
+		//req.clearHeaders();
+		req.addHeaders(outHeaders);
+		req.sslSetVerifyPeer(peerVerification);
+		if (!outFile.isNull) {
+			req.useStreaming = true;
+		}
+		Response response;
+		final switch(method) {
+			case HTTPMethod.post:
+				if (postData is null) {
+					response = req.post(url.text, string[string].init);
+				} else {
+					response = req.post(url.text, postData);
 				}
-				if ("content-md5" in _headers)
-					enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
-				if ("content-length" in _headers)
-					enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
-				if (!sizeExpected.isNull)
-					enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
-				if (checkNoContent)
-					enforce(_content.data.length > 0, new HTTPException("No data received"));
-				if (!ignoreStatus)
-					enforce(statusCode < 300, new StatusException(statusCode, url));
-				if (!md5(true).original.isNull())
-					enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
-				if (!sha1(true).original.isNull())
-					enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
-				fetched = true;
-				return;
-			} catch (CurlException e) {
-				lastException = e;
-			} catch (StatusException e) {
-				with(HTTPStatus) switch (statusCode) {
-					case MovedPermanently, Found, SeeOther, TemporaryRedirect, PermanentRedirect:
-						enforce(redirectCount++ < 5, e);
-						url = url.absoluteURL(_headers["location"]);
-						if ((statusCode == MovedPermanently) || (statusCode == Found) || (statusCode == SeeOther))
-							method = CurlHTTP.Method.get;
-						break;
-					case InternalServerError, BadGateway, ServiceUnavailable, GatewayTimeout:
-						break;
-					default:
-						throw new StatusException(statusCode, url);
-				}
-				lastException = e;
-			} catch (HTTPException e) {
-				lastException = e;
+				break;
+			case HTTPMethod.get:
+				response = req.get(url.text);
+				break;
+			case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
+				assert(0);
+		}
+		assert(response !is null);
+		if (!outFile.isNull) {
+			response.receiveAsRange().copy(File(outFile, "wb").lockingBinaryWriter);
+		} else {
+			_content ~= response.responseBody;
+		}
+		statusCode = cast(HTTPStatus)response.code;
+		_headers = response.responseHeaders;
+		if ("content-disposition" in _headers) {
+			immutable disposition = parseDispositionString(_headers["content-disposition"]);
+			if (!disposition.filename.isNull)
+				overriddenFilename = disposition.filename;
+		}
+		if ("content-md5" in _headers) {
+			enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
+		}
+		if ("content-length" in _headers) {
+			if (!outFile.isNull) {
+				enforce(File(outFile, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
+			} else {
+				enforce(_content.data.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 			}
 		}
-		throw lastException;
+		if (!md5(true).original.isNull()) {
+			enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
+		}
+		if (!sha1(true).original.isNull()) {
+			enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
+		}
+		if (!sizeExpected.isNull) {
+			enforce(_content.data.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+		}
+		if (checkNoContent) {
+			enforce(_content.data.length > 0, new HTTPException("No data received"));
+		}
+		if (!ignoreStatus) {
+			enforce(statusCode < 300, new StatusException(statusCode, url));
+		}
+		fetched = true;
 	}
 }
 /++
@@ -692,7 +646,7 @@ class StatusException : HTTPException {
 	 +/
 	this(HTTPStatus errorCode, URL url, string file = __FILE__, size_t line = __LINE__) {
 		code = errorCode;
-		super(format("Error %d fetching URL %s", errorCode, url), file, line);
+		super(format("Error %d (%s) fetching URL %s", errorCode, errorCode, url), file, line);
 	}
 }
 /++
@@ -835,27 +789,6 @@ version(online) unittest {
 		assert(req.status == HTTPStatus.OK, "200 status undetected");
 		assert(req.isComplete);
 	}
-	{ //Oauth: header
-		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
-		assert(req.content == "success=true", "oauth failure:"~req.content);
-		assert(req.status == HTTPStatus.OK, "OAuth failure");
-	}
-	{ //Oauth: querystring
-		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
-		assert(req.content == "success=true", "oauth failure:"~req.content);
-		assert(req.status == HTTPStatus.OK, "OAuth failure");
-	}
-	assert(get(testURL.withParams(["301":""])).content == "GET");
-	assert(get(testURL.withParams(["301":""])).status == HTTPStatus.MovedPermanently, "301 error undetected");
-	assert(get(testURL.withParams(["302":""])).content == "GET");
-	assert(get(testURL.withParams(["302":""])).status == HTTPStatus.Found, "302 error undetected");
-	assert(get(testURL.withParams(["303":""])).content == "GET");
-	assert(get(testURL.withParams(["303":""])).status == HTTPStatus.SeeOther, "303 error undetected");
-	assert(get(testURL.withParams(["307":""])).content == "GET");
-	assert(get(testURL.withParams(["307":""])).status == HTTPStatus.TemporaryRedirect, "307 error undetected");
-	assert(get(testURL.withParams(["308":""])).content == "GET");
 	assertThrown(get(testURL.withParams(["403":""])).perform());
 	assert(get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
 	assertThrown(get(testURL.withParams(["404":""])).perform());
@@ -887,4 +820,16 @@ version(online) unittest {
 	assert(resp2.content == "beep2");
 	assert(resp2.content == "beep2");
 	assert(resp1.content == "beep1");
+	{ //Oauth: header
+		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
+		assert(req.content == "success=true", "oauth failure:"~req.content);
+		assert(req.status == HTTPStatus.OK, "OAuth failure");
+	}
+	{ //Oauth: querystring
+		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
+		assert(req.content == "success=true", "oauth failure:"~req.content);
+		assert(req.status == HTTPStatus.OK, "OAuth failure");
+	}
 }
