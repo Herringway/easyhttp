@@ -170,9 +170,9 @@ struct URL {
 			foreach (parameter, value; params)
 				foreach (subvalue; value) {
 					if (subvalue == "")
-						parameterPrintable ~= parameter.encode().replace(":", "%3A");
+						parameterPrintable ~= parameter.encode().replace(":", "%3A").replace("+", "%2B");
 					else
-						parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A"), subvalue.encode().replace(":", "%3A"));
+						parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A").replace("+", "%2B"), subvalue.encode().replace(":", "%3A").replace("+", "%2B"));
 				}
 		} catch (Exception e) {
 			return "";
@@ -351,6 +351,10 @@ unittest {
 	assert(URL("http://url.example/?hello=").params == ["hello":[""]], "URIArguments: Empty value failure");
 	assert(URL("http://url.example/?hello+").params == ["hello ":[""]], "URIArguments: Key only with plus sign failure");
 	assert(URL("http://url.example/?hello+=").params == ["hello ":[""]], "URIArguments: Empty value with plus sign failure");
+	assert(URL("http://url.example/?hello+=").text == "http://url.example/?hello%20");
+	auto url = URL("http://url.example");
+	url.params["hello"] = ["+"];
+	assert(url.text == "http://url.example/?hello=%2B");
 }
 unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
