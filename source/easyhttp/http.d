@@ -699,8 +699,8 @@ version(online) unittest {
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;
-	enum testURL = URL("http://misc.herringway.pw/.test.php");
-	enum testURLHTTPS = URL("https://misc.herringway.pw/.test.php");
+	enum testURL = URL("http://misc.herringway.pw/.test/");
+	enum testURLHTTPS = URL("https://misc.herringway.pw/.test/");
 	auto testHeaders = ["Referer": testURL.hostname];
 	{
 		auto req = get(testURL);
