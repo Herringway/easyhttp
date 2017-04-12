@@ -174,7 +174,6 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 		auto dataCopy = urlEncode(data).representation.dup;
 	result.contentLength = dataCopy.length;
 	result.postData = dataCopy;
-	//auto remainingData = dataCopy;
 	result.outHeaders = headers;
 	return result;
 }
@@ -333,7 +332,7 @@ struct Request(ContentType) {
 	/++
 	 + Adds an OAuth bearer token to the request.
 	 +
-	 + Valid methods are OAuthMethod.Header.
+	 + Valid methods are OAuthMethod.header.
 	 +/
 	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) {
 		bearerToken = token;
@@ -479,14 +478,12 @@ struct Request(ContentType) {
 	 +  T = optional type to attempt deserialization to
 	 +/
 	T json(T = JSONValue)() {
-		auto a = content[0] == '{' ? lastIndexOf(content, '}') : content.length-1;
-		auto fixedContent = content[0..a+1]; //temporary hack
 		static if (is(T==JSONValue)) {
-			return parseJSON(fixedContent);
+			return parseJSON(content);
 		} else {
 			version(Have_siryul) {
 				import siryul : fromString, JSON;
-				return fixedContent.fromString!(T,JSON);
+				return content.fromString!(T,JSON);
 			} else
 				assert(0, "Unable to serialize without serialization library");
 		}
