@@ -178,12 +178,11 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 	result.outHeaders = headers;
 	return result;
 }
-@safe pure nothrow unittest {
+@safe pure unittest {
 	auto post1 = post(URL(URL.Proto.HTTPS, "localhost"), "");
 	auto post2 = post(URL(URL.Proto.HTTPS, "localhost"), "", ["":""]);
-	//TODO: Fix safety/purity issues
-	//auto post3 = post(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
-	//auto post4 = post(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
+	auto post3 = post(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
+	auto post4 = post(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
 }
 /++
  + An HTTP Request.
@@ -626,7 +625,7 @@ auto parseDispositionString(string str) @safe {
 		output.filename = match[1];
 	return output;
 }
-unittest {
+@safe unittest {
 	assert(parseDispositionString(`attachment; filename=example.txt`).filename == "example.txt");
 	assert(parseDispositionString(`attachment; filename="example.txt"`).filename == "example.txt");
 }
@@ -692,10 +691,10 @@ class HTTPException : Exception {
 	}
 }
 //Test to ensure initial construction is safe, pure, and nothrow
-/+@safe pure nothrow+/ unittest {
+@safe pure nothrow unittest {
 	get(URL(URL.Proto.HTTP, "localhost", "/"));
 }
-version(online) unittest {
+version(online) @system unittest {
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;

@@ -26,11 +26,11 @@ string urlEncode(T)(T value) if (isURLEncodable!T) {
 	string[] output;
 	foreach (key, values; urlEncodeInternal(value))
 		foreach (value; values)
-			output ~= format("%s=%s", key, value);
+			output ~= format!"%s=%s"(key, value);
 	return output.join("&");
 }
 ///
-unittest {
+@safe pure unittest {
 	struct Beep {
 		string a;
 		uint b;
@@ -65,11 +65,60 @@ unittest {
 		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
 	}
 }
-package string[][string] urlEncodeAssoc(in string[][string] value) {
+package string encodeComponentSafe(string input) @safe pure {
+	import std.utf : byCodeUnit;
+	string output;
+	output.reserve(input.length*3);
+	foreach (character; input.byCodeUnit) {
+		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '(', ')')) {
+			output ~= character;
+		} else {
+			output ~= format!"%%%02X"(character);
+		}
+	}
+	return output;
+}
+///
+@safe pure unittest {
+	assert(encodeComponentSafe("Hello") == "Hello");
+	assert(encodeComponentSafe("Hello ") == "Hello%20");
+	assert(encodeComponentSafe("Helloã") == "Hello%C3%A3");
+}
+package string decodeComponentSafe(string input) @safe pure {
+	import std.utf : byCodeUnit;
+	string output;
+	output.reserve(input.length);
+	ubyte decodingState;
+	ubyte decodingChar;
+	foreach (character; input.byCodeUnit) {
+		if (character == '%') {
+			decodingState = 2;
+			decodingChar = 0;
+		} else if (decodingState > 0) {
+			decodingChar |= [character].to!ubyte(16) << ((decodingState-1)*4);
+			decodingState--;
+			if (decodingState == 0) {
+				output ~= cast(char)decodingChar;
+			}
+		} else {
+			output ~= character;
+		}
+	}
+	return output;
+}
+///
+@safe pure unittest {
+	assert(decodeComponentSafe("Hello") == "Hello");
+	assert(decodeComponentSafe("Hello%20") == "Hello ");
+	assert(decodeComponentSafe("Hello%C3%A3") == "Helloã");
+	assert(decodeComponentSafe("Hello%") == "Hello");
+	assert(decodeComponentSafe("Hello%1") == "Hello");
+}
+package string[][string] urlEncodeAssoc(in string[][string] value) @safe pure {
 	string[][string] newData;
 	foreach (key, vals; value)
 		foreach (val; vals)
-			newData[encodeComponent(key)] ~= [encodeComponent(val)];
+			newData[encodeComponentSafe(key)] ~= [encodeComponentSafe(val)];
 	return newData;
 }
 package string[][string] toURLParams(in string[string] value) @safe pure nothrow {
@@ -109,7 +158,7 @@ package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {
 	foreach (member; FieldNameTuple!T) {
 		assert(!is(typeof(__traits(getMember, value, member)) == struct), "Cannot URL encode nested structs");
 		static if (isArray!(typeof(__traits(getMember, value, member))) && !isSomeString!(typeof(__traits(getMember, value, member)))) {
-			output[member] = [format("%-(%s,%)", __traits(getMember, value, member))];
+			output[member] = [format!"%-(%s,%)"(__traits(getMember, value, member))];
 		} else
 			output[member] = [__traits(getMember, value, member).text];
 	}
@@ -135,7 +184,7 @@ template isURLEncodable(T) {
 	enum isURLEncodable = __traits(compiles, { T thing; urlEncodeAssoc(toURLParams(thing)); });
 }
 ///
-unittest {
+@safe pure nothrow @nogc unittest {
 	struct Test {
 		string a;
 	}

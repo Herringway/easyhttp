@@ -111,13 +111,13 @@ struct URL {
 	this(T)(string str, T inParams) if (isURLEncodable!T) {
 		this(str);
 		foreach (key, values; urlEncodeInternal(inParams)) {
-			this.params[decodeComponent(key)] = [];
+			this.params[decodeComponentSafe(key)] = [];
 			foreach (value; values)
-				this.params[decodeComponent(key)] ~= decodeComponent(value);
+				this.params[decodeComponentSafe(key)] ~= decodeComponentSafe(value);
 		}
 	}
 	///ditto
-	this(string str) @safe nothrow {
+	this(string str) @safe pure nothrow {
 		this.protocol = str.urlProtocol;
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
@@ -163,16 +163,16 @@ struct URL {
 	/++
 	 + Transforms the parameters for this URL to a URL-encoded string.
 	 +/
-	string paramString() nothrow const @trusted {
+	string paramString() nothrow const @trusted pure {
 		if (params == null) return "";
 		string[] parameterPrintable;
 		try {
 			foreach (parameter, value; params)
 				foreach (subvalue; value) {
 					if (subvalue == "")
-						parameterPrintable ~= parameter.encode().replace(":", "%3A").replace("+", "%2B");
+						parameterPrintable ~= parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B");
 					else
-						parameterPrintable ~= format("%s=%s", parameter.encode().replace(":", "%3A").replace("+", "%2B"), subvalue.encode().replace(":", "%3A").replace("+", "%2B"));
+						parameterPrintable ~= format("%s=%s", parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"), subvalue.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"));
 				}
 		} catch (Exception e) {
 			return "";
@@ -211,7 +211,7 @@ struct URL {
 		return URL(ProtoCopy, HostnameCopy, PathCopy ~ "/" ~ urlB.path, ParamsCopy);
 	}
 	///ditto
-	URL absoluteURL(string urlB) const @safe nothrow {
+	URL absoluteURL(string urlB) const pure @safe nothrow {
 		return absoluteURL(URL(urlB));
 	}
 	///ditto
@@ -221,7 +221,7 @@ struct URL {
 	/++
 	 + Returns URL as a string.
 	 +/
-	string toString(bool includeParameters) const @safe {
+	string toString(bool includeParameters) const @safe pure {
 		string output;
 		if (protocol == Proto.HTTPS)
 			output ~= "https://" ~ hostname;
@@ -243,7 +243,7 @@ struct URL {
 		}
 		return output;
 	}
-	void toString(scope void delegate(const(char)[]) sink, FormatSpec!char fmt = FormatSpec!char.init) const {
+	void toString(T)(T sink, FormatSpec!char fmt = FormatSpec!char.init) const if (isOutputRange!(T, char[])) {
 		if (protocol == Proto.HTTPS) {
 			sink("https://");
 		} else if (protocol == Proto.HTTP) {
@@ -275,7 +275,7 @@ struct URL {
 		}
 	}
 	///ditto
-	string toString() const @safe {
+	string toString() const @safe pure {
 		return toString(true);
 	}
 }
@@ -283,7 +283,7 @@ struct URL {
 	const a = URL(URL.Proto.HTTP, "localhost", "/", ["a": "b"]);
 	const b = URL(URL.Proto.HTTP, "localhost", "/");
 }
-@safe unittest {
+@safe pure unittest {
 	assert(URL("http://url.example/?a=b").toString() == "http://url.example/?a=b", "Simple complete URL failure");
 	assert(URL("https://url.example/?a=b").toString() == "https://url.example/?a=b", "Simple complete URL (https) failure");
 	assert(URL("http://url.example").toString() == "http://url.example", "Simple complete URL (no ending slash) failure");
@@ -291,7 +291,7 @@ struct URL {
 	assert(URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
 	assert(URL("/something?a=b:d").toString() == "/something?a=b%3Ad");
 }
-unittest {
+@safe pure unittest {
 	struct Test {
 		string a;
 	}
@@ -300,7 +300,7 @@ unittest {
 	assert(URL("http://url.example/", Test("b")).toString() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
 	assert(URL("http://url.example/?a=c", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 }
-@safe unittest {
+@safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
 	assert(URL("https://url.example").protocol == URL.Proto.HTTPS, "HTTPS detection failure");
 	assert(URL("url.example").protocol == URL.Proto.Unknown, "No-protocol detection failure");
@@ -310,7 +310,7 @@ unittest {
 	assert(URL("http:url.example").protocol == URL.Proto.HTTP);
 	assert(URL("/something?a=b:d").protocol == URL.Proto.None);
 }
-@safe unittest {
+@safe pure unittest {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
 	assert(URL("https://url.example").hostname == "url.example", "HTTPS hostname detection failure");
 	assert(URL("url.example").hostname == "url.example", "No-protocol hostname detection failure");
@@ -322,7 +322,7 @@ unittest {
 	assert(URL("HTTP:url.example").hostname == "url.example");
 	assert(URL("/something?a=b:d").hostname == "");
 }
-unittest {
+@safe pure unittest {
 	assert(URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example", "Switching protocol (string) failure");
 	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).toString() == "https://url.example", "Switching protocol (struct) failure");
 	assert(URL("http://url.example").absoluteURL("http://url.example").toString() == "http://url.example", "Identical URL (string) failure");
@@ -340,7 +340,7 @@ unittest {
 	assert(URL("http://url.example/dir").absoluteURL("different").toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
 	assert(URL("http://url.example/dir").absoluteURL(URL("different")).toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
 }
-unittest {
+@safe pure unittest {
 	assert(URL("").params is null, "URIArguments: Empty string failure");
 	assert(URL("http://url.example/?hello=world").params == ["hello":["world"]], "URIArguments: Simple test failure");
 	assert(URL("http://url.example/?hello=world+butt").params == ["hello":["world butt"]], "URIArguments: Plus as space in value failure");
@@ -355,7 +355,9 @@ unittest {
 	auto url = URL("http://url.example");
 	url.params["hello"] = ["+"];
 	assert(url.text == "http://url.example/?hello=%2B");
+	assert(format!"%n"(URL("http://url.example/?hello")) == "http://url.example");
+	assert(format!"%s"(URL("http://url.example/?hello")) == "http://url.example/?hello");
 }
-unittest {
+@safe pure unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
