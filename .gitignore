@@ -11,6 +11,8 @@ cookiejar.txt
 *.pdb
 *.a
 
+curl-ca-bundle.crt
+
 #various tool files
 dub.selections.json
 docs.json
