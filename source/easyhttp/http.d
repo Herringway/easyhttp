@@ -279,8 +279,14 @@ struct Request(ContentType) {
 	 + Params:
 	 +  dest = default destination for the file to be saved
 	 +  overwrite = whether or not to overwrite existing files
+	 +  clearAfterComplete = whether or not to clear the buffer after success
 	 +/
-	SavedFileInformation saveTo(string dest, bool overwrite = true) {
+	SavedFileInformation saveTo(string dest, bool overwrite = true, bool clearAfterComplete = false) {
+		scope(success) {
+			if (clearAfterComplete) {
+				_content = null;
+			}
+		}
 		auto output = SavedFileInformation();
 		if (!overwrite)
 			while (exists(dest))
@@ -296,10 +302,11 @@ struct Request(ContentType) {
 		else {
 			auto writeFile = File(dest, "wb");
 
-		scope(exit)
-			if (writeFile.isOpen) {
-				writeFile.flush();
-				writeFile.close();
+			scope(exit) {
+				if (writeFile.isOpen) {
+					writeFile.flush();
+					writeFile.close();
+				}
 			}
 			writeFile.rawWrite(_content);
 		}
