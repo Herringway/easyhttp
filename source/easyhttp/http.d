@@ -585,7 +585,7 @@ struct Request(ContentType) {
 			if (!outFile.isNull) {
 				enforce(File(outFile, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
 			} else {
-				enforce(_content.length == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+				enforce(req.contentLength == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 			}
 		}
 		if (!md5(true).original.isNull()) {
