@@ -246,6 +246,7 @@ struct Request(ContentType) {
 			assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
 	}
 	private this(URL initial) nothrow {
+		debug(verbosehttp) verbose = true;
 		if ("User-Agent" !in outHeaders)
 			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
 		url = initial;
@@ -536,7 +537,7 @@ struct Request(ContentType) {
 	} body {
 		import requests;
 		auto req = requests.Request();
-		req.verbosity = verbose ? 2 : 0;
+		req.verbosity = verbose ? 3 : 0;
 		if (!systemCertPath.isNull) {
 			req.sslSetCaCert(systemCertPath);
 		}
