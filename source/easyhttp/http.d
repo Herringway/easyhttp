@@ -293,7 +293,7 @@ struct Request(ContentType) {
 	SavedFileInformation saveTo(string dest, bool overwrite = true, bool clearAfterComplete = false) {
 		scope(success) {
 			if (clearAfterComplete) {
-				_content = null;
+				reset();
 			}
 		}
 		auto output = SavedFileInformation();
