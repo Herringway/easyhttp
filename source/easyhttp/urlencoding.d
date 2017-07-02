@@ -22,54 +22,101 @@ import std.uri;
  + Params:
  +  value = The structure to encode
  +/
-string urlEncode(T)(T value) if (isURLEncodable!T) {
-	string[] output;
-	foreach (key, values; urlEncodeInternal(value))
+auto urlEncode(T)(T value) if (isURLEncodable!T) {
+	import requests : QueryParam;
+	QueryParam[] output;
+	foreach (key, values; urlEncodeInternal!(T, false)(value))
 		foreach (value; values)
-			output ~= format!"%s=%s"(key, value);
-	return output.join("&");
+			output ~= QueryParam(key, value);
+	return output;
 }
 ///
 @safe pure unittest {
+	import requests : QueryParam;
 	struct Beep {
 		string a;
 		uint b;
 		uint[] c;
 	}
 	{
-		auto result = urlEncode(Beep("treeee&", 3, [1,2,5]));
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(Beep("treeee&", 3, [1,2,5])));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 	}
 	{
-		auto result = urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]);
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 	}
 	{
 		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = urlEncode(constTest);
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(constTest));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 	}
 	{
 		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = urlEncode(immutableTest);
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(immutableTest));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 	}
 	{
 		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = urlEncode(constTest);
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(constTest));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 	}
 	{
 		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = urlEncode(immutableTest);
-		assert(result.among("a=treeee%26&b=3&c=1%2C2%2C5", "b=3&a=treeee%26&c=1%2C2%2C5", "b=3&c=1%2C2%2C5&a=treeee%26", "c=1%2C2%2C5&b=3&a=treeee%26", "c=1%2C2%2C5&a=treeee%26&b=3", "a=treeee%26&c=1%2C2%2C5&b=3"));
+		auto result = sort(urlEncode(immutableTest));
+		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		//assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+}
+auto urlEncoded(T)(T value) if (isURLEncodable!T) {
+	import requests : QueryParam;
+	QueryParam[] output;
+	foreach (key, values; urlEncodeInternal!(T, true)(value))
+		foreach (value; values)
+			output ~= QueryParam(key, value);
+	return output;
+}
+///
+@safe pure unittest {
+	import requests : QueryParam;
+	struct Beep {
+		string a;
+		uint b;
+		uint[] c;
+	}
+	{
+		auto result = sort(urlEncoded(Beep("treeee&", 3, [1,2,5])));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+	{
+		auto result = sort(urlEncoded(["a":"treeee&", "b": "3", "c":"1,2,5"]));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+	{
+		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
+		auto result = sort(urlEncoded(constTest));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+	{
+		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
+		auto result = sort(urlEncoded(immutableTest));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+	{
+		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
+		auto result = sort(urlEncoded(constTest));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+	}
+	{
+		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
+		auto result = sort(urlEncoded(immutableTest));
+		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
 	}
 }
 package string encodeComponentSafe(string input) @safe pure {
-	import std.utf : byCodeUnit;
 	string output;
 	output.reserve(input.length*3);
-	foreach (character; input.byCodeUnit) {
+	foreach (character; input) {
 		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '(', ')')) {
 			output ~= character;
 		} else {
@@ -114,11 +161,17 @@ package string decodeComponentSafe(string input) @safe pure {
 	assert(decodeComponentSafe("Hello%") == "Hello");
 	assert(decodeComponentSafe("Hello%1") == "Hello");
 }
-package string[][string] urlEncodeAssoc(in string[][string] value) @safe pure {
+package string[][string] urlEncodeAssoc(bool performEncoding = true)(in string[][string] value) @safe pure {
 	string[][string] newData;
-	foreach (key, vals; value)
-		foreach (val; vals)
-			newData[encodeComponentSafe(key)] ~= [encodeComponentSafe(val)];
+	foreach (key, vals; value) {
+		foreach (val; vals) {
+			static if (performEncoding) {
+				newData[encodeComponentSafe(key)] ~= [encodeComponentSafe(val)];
+			} else {
+				newData[key] ~= [val];
+			}
+		}
+	}
 	return newData;
 }
 package string[][string] toURLParams(in string[string] value) @safe pure nothrow {
@@ -144,13 +197,13 @@ package string[][string] toURLParams(in string[][string] value) @safe pure nothr
 	}
 	return output;
 }
-package string[][string] urlEncodeInternal(T)(in T value) if (isURLEncodable!T) {
+package string[][string] urlEncodeInternal(T, bool urlEncode = true)(in T value) if (isURLEncodable!T) {
 	static if (is(T == struct))
-		return urlEncodeAssoc(toURLParams(value));
+		return urlEncodeAssoc!urlEncode(toURLParams(value));
 	else static if (isAssociativeArray!T) {
 		static if (is(Unqual!(ValueType!T) == string)
 			|| (isArray!(Unqual!(ValueType!T)) && is(Unqual!(ElementType!(Unqual!(ValueType!T))) == string)))
-			return urlEncodeAssoc(toURLParams(value));
+			return urlEncodeAssoc!urlEncode(toURLParams(value));
 	}
 }
 package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {

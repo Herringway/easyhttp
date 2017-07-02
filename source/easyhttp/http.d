@@ -166,14 +166,16 @@ auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
 	auto result = Request!T(inURL);
 	result.method = HTTPMethod.post;
-	static if (is(U == ubyte[]))
-		auto dataCopy = data;
-	else static if (is(U == string))
-		auto dataCopy = data.representation.dup;
-	else static if (isURLEncodable!U)
-		auto dataCopy = urlEncode(data).representation.dup;
-	result.contentLength = dataCopy.length;
-	result.postData = dataCopy;
+	static if (is(U == ubyte[])) {
+		result.rawPOSTData = data;
+		result.postDataType = POSTDataType.raw;
+	} else static if (is(U == string)) {
+		result.rawPOSTData = data.representation.dup;
+		result.postDataType = POSTDataType.raw;
+	} else static if (isURLEncodable!U) {
+		result.formPOSTData = urlEncode(data);
+		result.postDataType = POSTDataType.form;
+	}
 	result.outHeaders = headers;
 	return result;
 }
@@ -183,10 +185,16 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 	auto post3 = post(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
 	auto post4 = post(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
 }
+enum POSTDataType {
+	none,
+	raw,
+	form
+}
 /++
  + An HTTP Request.
  +/
 struct Request(ContentType) {
+	import requests : QueryParam;
 	private struct Hash {
 		Nullable!string hash;
 		Nullable!string original;
@@ -213,8 +221,6 @@ struct Request(ContentType) {
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
 	Nullable!URL url;
-	///Length of the data in the body
-	ulong contentLength;
 	package HTTPMethod method;
 	private OAuthParams oAuthParams;
 	///The HTTP status code last seen
@@ -230,7 +236,9 @@ struct Request(ContentType) {
 	///Whether to output verbose debugging information to stdout
 	bool verbose;
 	Cookie[] cookies;
-	ubyte[] postData;
+	private POSTDataType postDataType;
+	private QueryParam[] formPOSTData;
+	private ubyte[] rawPOSTData;
 
 	private Nullable!string outFile;
 	invariant() {
@@ -550,10 +558,16 @@ struct Request(ContentType) {
 		Response response;
 		final switch(method) {
 			case HTTPMethod.post:
-				if (postData is null) {
-					response = req.post(url.text, string[string].init);
-				} else {
-					response = req.post(url.text, postData);
+				final switch (postDataType) {
+					case POSTDataType.none:
+						response = req.post(url.text, string[string].init);
+						break;
+					case POSTDataType.form:
+						response = req.post(url.text, formPOSTData);
+						break;
+					case POSTDataType.raw:
+						response = req.post(url.text, rawPOSTData, "application/octet-stream");
+						break;
 				}
 				break;
 			case HTTPMethod.get:
@@ -780,12 +794,28 @@ version(online) @system unittest {
 		req.guaranteedData = true;
 		assertNotThrown(req.status);
 		assert(req.isComplete);
+		assert(req.content == "hi");
 	}
 	{
 		auto req = post(testURLHTTPS, "hi");
 		req.guaranteedData = true;
 		assertNotThrown(req.status);
 		assert(req.isComplete);
+		assert(req.content == "hi");
+	}
+	{
+		auto req = post(testURLHTTPS, ["testparam": "hello"]);
+		req.guaranteedData = true;
+		assertNotThrown(req.status);
+		assert(req.isComplete);
+		assert(req.content == "test param received");
+	}
+	{
+		auto req = post(testURLHTTPS, ["printparam": "hello&"]);
+		req.guaranteedData = true;
+		assertNotThrown(req.status);
+		assert(req.isComplete);
+		assert(req.content == "hello&");
 	}
 	{
 		auto req = post(testURL, "");
