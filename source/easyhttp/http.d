@@ -415,13 +415,13 @@ struct Request(ContentType) {
 		 + Sets an expected hash for the request.
 		 +/
 		void hash(string hash) @safe pure in {
-			assert(hash.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+			assert(hash[].filter!(x => !(x >= '0' && x <= '9') && !(x >= 'a' && x <= 'f') && !(x >= 'A' && x <= 'F')).empty, "Non-hexadecimal characters found in hash");
 		} body {
 			enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
 			hashes[HashMethod.stringof] = Hash(hash.toUpper());
 		}
 		void hash(immutable(char)[2*digestLength!HashMethod] str) @safe pure nothrow in {
-			assert(str.removechars("[0-9a-fA-F]") == [], "Non-hexadecimal characters found in hash");
+			assert(str[].filter!(x => !(x >= '0' && x <= '9') && !(x >= 'a' && x <= 'f') && !(x >= 'A' && x <= 'F')).empty, "Non-hexadecimal characters found in hash");
 		} body {
 			hashes[HashMethod.stringof] = assumeWontThrow(Hash(str[].toUpper().dup));
 		}

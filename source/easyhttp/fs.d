@@ -35,9 +35,11 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 		}
 		return dest;
 	}
-	import std.algorithm : min;
+	import std.algorithm : filter, min;
+	import std.array : array;
+	import std.path : absolutePath, baseName, buildNormalizedPath, dirName, extension;
 	import std.string : removechars;
-	import std.path : absolutePath, dirName, extension, baseName, buildNormalizedPath;
+	import std.utf : byCodeUnit;
 	FileSystemPath dest = inPath;
 	try {
 		version(Windows) {
@@ -45,9 +47,9 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 				dest = dest[4..$];
 			dest = dest.removechars(`"?<>|*`);
 			if ((dest.length >= 3) && (dest[1..3] == `:\`))
-				dest = dest[0..3]~dest[3..$].removechars(`:`);
+				dest = dest[0..3]~dest[3..$].byCodeUnit.filter!(x => x != ':').array;
 			else
-				dest = dest.removechars(`:`);
+				dest = dest.byCodeUnit.filter!(x => x != ':').array;
 		}
 		if (dest[$-1] == '.')
 			dest ~= "tmp";
