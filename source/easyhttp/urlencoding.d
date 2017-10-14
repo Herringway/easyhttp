@@ -9,6 +9,89 @@ import std.range;
 import std.string;
 import std.traits;
 import std.uri;
+
+
+struct URLParameters {
+	string[][string] params;
+	auto ref opIndex(string key) {
+		return params[key];
+	}
+	auto opIndexAssign(void[], string key) {
+		return params[key] = [];
+	}
+	auto opIndexAssign(string val, string key) {
+		return params[key] = [val];
+	}
+	auto opIndexAssign(string[] vals, string key) {
+		return params[key] = vals;
+	}
+	auto opIndexAssign(T)(T val, string key) {
+		import std.conv : text;
+		return params[key] = [val.text];
+	}
+	void opIndexOpAssign(string op)(const string val, const string key) {
+		if (key !in params) {
+			params[key] = [];
+		}
+		mixin("params[key] "~op~"= val;");
+	}
+	void opIndexOpAssign(string op)(const string[] val, const string key) {
+		if (key !in params) {
+			params[key] = [];
+		}
+		mixin("params[key] "~op~"= val;");
+	}
+	void opIndexOpAssign(string op, T)(const T val, const string key) {
+		import std.conv : to;
+		if (key !in params) {
+			params[key] = [];
+		}
+		mixin("params[key] "~op~"= val.to!string;");
+	}
+	bool empty() const pure @nogc @safe nothrow {
+		return params == null;
+	}
+	int opApply(scope int delegate(const string, const string[]) pure @safe dg) const pure @safe {
+		int result = 0;
+		foreach (k,v; params) {
+			result = dg(k,v);
+			if (result) {
+				break;
+			}
+		}
+		return result;
+	}
+	int opApply(scope int delegate(const string, ref string[]) pure @safe dg) pure @safe {
+		int result = 0;
+		foreach (k,v; params) {
+			result = dg(k,v);
+			if (result) {
+				break;
+			}
+		}
+		return result;
+	}
+	auto opEquals(const string[][string] v) const {
+		return v == params;
+	}
+	auto opEquals(const URLParameters v) const {
+		return v.params == params;
+	}
+	auto remove(const string key) {
+		params.remove(key);
+	}
+}
+@safe pure unittest {
+	{
+		auto x = URLParameters();
+		x["a"] = 6;
+		assert(x["a"] == ["6"]);
+		x["a"] ~= 7;
+		assert(x["a"] == ["6", "7"]);
+		x.remove("a");
+		assert(x.empty);
+	}
+}
 /++
  + URL-encodes a data structure.
  +
@@ -67,6 +150,9 @@ auto urlEncode(T)(T value) if (isURLEncodable!T) {
 		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
 		//assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
 	}
+}
+auto urlEncoded(T : string[][string])(T val) {
+	return urlEncoded(URLParameters(val));
 }
 auto urlEncoded(T)(T value) if (isURLEncodable!T) {
 	import requests : QueryParam;
@@ -161,8 +247,8 @@ package string decodeComponentSafe(string input) @safe pure {
 	assert(decodeComponentSafe("Hello%") == "Hello");
 	assert(decodeComponentSafe("Hello%1") == "Hello");
 }
-package string[][string] urlEncodeAssoc(bool performEncoding = true)(in string[][string] value) @safe pure {
-	string[][string] newData;
+package URLParameters urlEncodeAssoc(bool performEncoding = true)(const URLParameters value) @safe pure {
+	URLParameters newData;
 	foreach (key, vals; value) {
 		foreach (val; vals) {
 			static if (performEncoding) {
@@ -174,8 +260,8 @@ package string[][string] urlEncodeAssoc(bool performEncoding = true)(in string[]
 	}
 	return newData;
 }
-package string[][string] toURLParams(in string[string] value) @safe pure nothrow {
-	string[][string] newData;
+package URLParameters toURLParams(const string[string] value) @safe pure nothrow {
+	URLParameters newData;
 	try {
 		foreach (key, val; value)
 			newData[key] = [val];
@@ -184,11 +270,11 @@ package string[][string] toURLParams(in string[string] value) @safe pure nothrow
 	}
 	return newData;
 }
-package string[][string] toURLParams(string[][string] value) @safe pure nothrow {
+package URLParameters toURLParams(URLParameters value) @safe pure nothrow {
 	return value;
 }
-package string[][string] toURLParams(in string[][string] value) @safe pure nothrow {
-	string[][string] output;
+package URLParameters toURLParams(const URLParameters value) @safe pure nothrow {
+	URLParameters output;
 	try {
 		foreach (k, v; value)
 			output[k] = v.dup;
@@ -197,7 +283,14 @@ package string[][string] toURLParams(in string[][string] value) @safe pure nothr
 	}
 	return output;
 }
-package string[][string] urlEncodeInternal(T, bool urlEncode = true)(in T value) if (isURLEncodable!T) {
+package URLParameters toURLParams(const string[][string] params) @safe pure nothrow {
+	try {
+		return URLParameters(params.to!(string[][string]));
+	} catch (Exception) {
+		return URLParameters.init;
+	}
+}
+package URLParameters urlEncodeInternal(T, bool urlEncode = true)(in T value) if (isURLEncodable!T) {
 	static if (is(T == struct))
 		return urlEncodeAssoc!urlEncode(toURLParams(value));
 	else static if (isAssociativeArray!T) {
@@ -206,8 +299,8 @@ package string[][string] urlEncodeInternal(T, bool urlEncode = true)(in T value)
 			return urlEncodeAssoc!urlEncode(toURLParams(value));
 	}
 }
-package string[][string] toURLParams(T)(in T value) if (is(T == struct)) {
-	string[][string] output;
+package URLParameters toURLParams(T)(in T value) if (is(T == struct)) {
+	URLParameters output;
 	foreach (member; FieldNameTuple!T) {
 		assert(!is(typeof(__traits(getMember, value, member)) == struct), "Cannot URL encode nested structs");
 		static if (isArray!(typeof(__traits(getMember, value, member))) && !isSomeString!(typeof(__traits(getMember, value, member)))) {

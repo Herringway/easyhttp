@@ -1,6 +1,5 @@
 module easyhttp.url;
 
-alias URLParameters = string[][string];
 alias URLHeaders = string[string];
 
 import std.algorithm;
@@ -164,7 +163,7 @@ struct URL {
 	 + Transforms the parameters for this URL to a URL-encoded string.
 	 +/
 	string paramString() nothrow const @trusted pure {
-		if (params == null) return "";
+		if (params.empty) return "";
 		string[] parameterPrintable;
 		try {
 			foreach (parameter, value; params)
@@ -341,7 +340,7 @@ struct URL {
 	assert(URL("http://url.example/dir").absoluteURL(URL("different")).toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
 }
 @safe pure unittest {
-	assert(URL("").params is null, "URIArguments: Empty string failure");
+	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
 	assert(URL("http://url.example/?hello=world").params == ["hello":["world"]], "URIArguments: Simple test failure");
 	assert(URL("http://url.example/?hello=world+butt").params == ["hello":["world butt"]], "URIArguments: Plus as space in value failure");
 	assert(URL("http://url.example/?hello+butt=world").params == ["hello butt":["world"]], "URIArguments: Plus as space in key failure");
