@@ -223,6 +223,11 @@ struct URL {
 	URL absoluteURL(T)(string urlB, T params) const if (isURLEncodable!T) {
 		return absoluteURL(URL(urlB, params));
 	}
+	///ditto
+	URL absoluteURL(string fmt, Args...)(Args fmtParams) const {
+		import std.format : format;
+		return absoluteURL(URL(format!fmt(fmtParams)));
+	}
 	/++
 	 + Returns URL as a string.
 	 +/
@@ -346,6 +351,8 @@ struct URL {
 	assert(URL("http://url.example/dir").absoluteURL(URL("/different")).toString() == "http://url.example/different", "Root-relative (w/dir) URL (struct) failure");
 	assert(URL("http://url.example/dir").absoluteURL("different").toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
 	assert(URL("http://url.example/dir").absoluteURL(URL("different")).toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL!"/%s"("test").toString() == "http://url.example/test");
+	assert(URL("http://url.example").absoluteURL!"/%s"(5).toString() == "http://url.example/5");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
