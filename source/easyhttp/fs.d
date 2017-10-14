@@ -35,7 +35,7 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 		}
 		return dest;
 	}
-	import std.algorithm : filter, min;
+	import std.algorithm : among, filter, min;
 	import std.array : array;
 	import std.path : absolutePath, baseName, buildNormalizedPath, dirName, extension;
 	import std.string : removechars;
@@ -45,7 +45,7 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 		version(Windows) {
 			if ((dest.length >= 4) && (dest[0..4] == `\\?\`))
 				dest = dest[4..$];
-			dest = dest.removechars(`"?<>|*`);
+			dest = dest.byCodeUnit.filter!(x => !x.among!('"','?','<','>','|','*')).array;
 			if ((dest.length >= 3) && (dest[1..3] == `:\`))
 				dest = dest[0..3]~dest[3..$].byCodeUnit.filter!(x => x != ':').array;
 			else
