@@ -715,7 +715,8 @@ class HTTPException : Exception {
 @safe pure nothrow unittest {
 	get(URL(URL.Proto.HTTP, "localhost", "/"));
 }
-version(online) @system unittest {
+//will be @safe once requests supports it
+@system unittest {
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;
@@ -725,46 +726,62 @@ version(online) @system unittest {
 	{
 		auto req = get(testURL);
 		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
-		assertNotThrown(req.status, "MD5 failure (lowercase)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "MD5 failure (lowercase)");
+			assert(req.isComplete);
+		}
 	}
 	{
 		auto req = get(testURLHTTPS);
 		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
-		assertNotThrown(req.status, "MD5 failure (lowercase, HTTPS)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "MD5 failure (lowercase, HTTPS)");
+			assert(req.isComplete);
+		}
 	}
 	{
 		auto req = get(URL("https://expired.badssl.com"));
-		assertThrown(req.status, "HTTPS on expired cert succeeded");
+		version(online) {
+			assertThrown(req.status, "HTTPS on expired cert succeeded");
+		}
 	}
 	{
 		auto req = get(URL("https://expired.badssl.com"));
 		req.peerVerification = false;
-		assertNotThrown(req.status, "HTTPS without peer verification failed on expired cert");
+		version(online) {
+			assertNotThrown(req.status, "HTTPS without peer verification failed on expired cert");
+		}
 	}
 	{
 		auto req = get(testURL);
 		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC8";
-		assertNotThrown(req.status, "MD5 failure (uppercase)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "MD5 failure (uppercase)");
+			assert(req.isComplete);
+		}
 	}
 	{
 		auto req = get(testURL);
 		req.sha1 = "f030bbbd32966cde41037b98a8849c46b76e4bc1";
-		assertNotThrown(req.status, "SHA1 failure (lowercase)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "SHA1 failure (lowercase)");
+			assert(req.isComplete);
+		}
 	}
 	{
 		auto req = get(testURL);
 		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC1";
-		assertNotThrown(req.status, "SHA1 failure (uppercase)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "SHA1 failure (uppercase)");
+			assert(req.isComplete);
+		}
 	}
 	{
 		auto req = get(testURL);
 		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC9";
-		assertThrown(req.status, "Bad MD5 (incorrect hash)");
+		version(online) {
+			assertThrown(req.status, "Bad MD5 (incorrect hash)");
+		}
 	}
 	{
 		auto req = get(testURL);
@@ -781,102 +798,135 @@ version(online) @system unittest {
 	{
 		auto req = get(testURL);
 		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC2";
-		assertThrown(req.status, "Bad SHA1 (incorrect hash)");
+		version(online) {
+			assertThrown(req.status, "Bad SHA1 (incorrect hash)");
+		}
 	}
  	{
  		auto req = get(testURL);
  		req.expectedSize = 3;
- 		assertNotThrown(req.status, "Expected size failure (correct size given)");
-		assert(req.isComplete);
+		version(online) {
+			assertNotThrown(req.status, "Expected size failure (correct size given)");
+			assert(req.isComplete);
+		}
  		req = get(testURL);
  		req.expectedSize = 4;
- 		assertThrown(req.status, "Expected size failure (intentional bad size)");
+		version(online) {
+			assertThrown(req.status, "Expected size failure (intentional bad size)");
+		}
  	}
 	{
 		auto req = post(testURL, "hi");
 		req.guaranteedData = true;
-		assertNotThrown(req.status);
-		assert(req.isComplete);
-		assert(req.content == "hi");
+		version(online) {
+			assertNotThrown(req.status);
+			assert(req.isComplete);
+			assert(req.content == "hi");
+		}
 	}
 	{
 		auto req = post(testURLHTTPS, "hi");
 		req.guaranteedData = true;
-		assertNotThrown(req.status);
-		assert(req.isComplete);
-		assert(req.content == "hi");
+		version(online) {
+			assertNotThrown(req.status);
+			assert(req.isComplete);
+			assert(req.content == "hi");
+		}
 	}
 	{
 		auto req = post(testURLHTTPS, ["testparam": "hello"]);
 		req.guaranteedData = true;
-		assertNotThrown(req.status);
-		assert(req.isComplete);
-		assert(req.content == "test param received");
+		version(online) {
+			assertNotThrown(req.status);
+			assert(req.isComplete);
+			assert(req.content == "test param received");
+		}
 	}
 	{
 		auto req = post(testURLHTTPS, ["printparam": "hello&"]);
 		req.guaranteedData = true;
-		assertNotThrown(req.status);
-		assert(req.isComplete);
-		assert(req.content == "hello&");
+		version(online) {
+			assertNotThrown(req.status);
+			assert(req.isComplete);
+			assert(req.content == "hello&");
+		}
 	}
 	{
 		auto req = post(testURL, "");
 		req.guaranteedData = true;
-		assertThrown(req.status);
+		version(online) {
+			assertThrown(req.status);
+		}
 	}
 	{
 		auto req = get(testURL, testHeaders);
-		assert(req.content == "GET", "GET URL failure");
-		assert(req.status == HTTPStatus.OK, "200 status undetected");
-		assert(req.isComplete);
+		version(online) {
+			assert(req.content == "GET", "GET URL failure");
+			assert(req.status == HTTPStatus.OK, "200 status undetected");
+			assert(req.isComplete);
+		}
 	}
-	assertThrown(get(testURL.withParams(["403":""])).perform());
-	assert(get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
-	assertThrown(get(testURL.withParams(["404":""])).perform());
-	assert(get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
-	assertThrown(get(testURL.withParams(["500":""])).perform());
-	assert(get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
-	assert(post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
-
+	version(online) {
+		assertThrown(get(testURL.withParams(["403":""])).perform());
+		assert(get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
+		assertThrown(get(testURL.withParams(["404":""])).perform());
+		assert(get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
+		assertThrown(get(testURL.withParams(["500":""])).perform());
+		assert(get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
+		assert(post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
+	}
 	{
 		auto req = get(testURL.withParams(["saveas":"example"]));
-		req.perform();
-		assert(req.filename == "example", "content-disposition failure");
+		version(online) {
+			req.perform();
+			assert(req.filename == "example", "content-disposition failure");
+		}
 	}
 	{
 		auto req = get(testURL.withParams(["PRINTHEADER": ""]));
 		req.outHeaders["echo"] = "hello world";
-		assert(req.content == "hello world", "adding header failed");
+		version(online) {
+			assert(req.content == "hello world", "adding header failed");
+		}
 	}
 	enum testDownloadURL = URL("http://misc.herringway.pw/whack.gif");
 	auto a1 = get(testDownloadURL);
-	scope(exit) if (exists("whack.gif")) remove("whack.gif");
-	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
-	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
-	a1.saveTo("whack.gif");
-	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
-	a1.saveTo("whack2.gif");
+	version(online) {
+		scope(exit) if (exists("whack.gif")) remove("whack.gif");
+		scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
+		scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
+		a1.saveTo("whack.gif");
+		assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
+		a1.saveTo("whack2.gif");
+	}
 	auto resp1 = post(testURL.withParams(["1": ""]), "beep1");
 	auto resp2 = post(testURL.withParams(["2": ""]), "beep2");
-	assert(resp2.content == "beep2");
-	assert(resp2.content == "beep2");
-	assert(resp1.content == "beep1");
+	version(online) {
+		assert(resp2.content == "beep2");
+		assert(resp2.content == "beep2");
+		assert(resp1.content == "beep1");
+	}
 	{ //Oauth: header
 		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
 		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
-		assert(req.content == "success=true", "oauth failure:"~req.content);
-		assert(req.status == HTTPStatus.OK, "OAuth failure");
+		version(online) {
+			assert(req.content == "success=true", "oauth failure:"~req.content);
+			assert(req.status == HTTPStatus.OK, "OAuth failure");
+		}
 	}
 	{ //Oauth: querystring
 		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
 		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
-		assert(req.content == "success=true", "oauth failure:"~req.content);
-		assert(req.status == HTTPStatus.OK, "OAuth failure");
+		version(online) {
+			assert(req.content == "success=true", "oauth failure:"~req.content);
+			assert(req.status == HTTPStatus.OK, "OAuth failure");
+		}
 	}
 	{ //Cookies
 		auto req = get(testURL.withParams(["printCookie": "testCookie"]));
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
-		assert(req.content == "something");
+		version(online) {
+			assert(req.content == "something");
+		}
 	}
 }
