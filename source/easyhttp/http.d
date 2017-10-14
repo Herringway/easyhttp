@@ -355,7 +355,7 @@ struct Request(ContentType) {
 		if (method == OAuthMethod.header)
 			addHeader("Authorization", "Bearer "~token);
 	}
-	void oauth(Hash = SHA1)(OAuthMethod oauthMethod, in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) {
+	void oauth(Hash = SHA1)(OAuthMethod oauthMethod, in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) @safe {
 		static if (is(Hash == SHA1))
 			enum hashType = "SHA1";
 		else static if (is(Hash == MD5))
@@ -370,9 +370,9 @@ struct Request(ContentType) {
 		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-"~hashType];
 		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [Clock.currTime().toUTC().toUnixTime().text];
 		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
-		string signature = [encodeComponent(oAuthParams.consumerSecret), encodeComponent(oAuthParams.tokenSecret)].join("&");
+		string signature = [encodeComponentSafe(oAuthParams.consumerSecret), encodeComponentSafe(oAuthParams.tokenSecret)].join("&");
 		auto signer = HMAC!Hash(signature.representation);
-		auto baseString = only(encodeComponent(method.text.toUpper()), encodeComponent(copy_url.toString(false)), encodeComponent(copy_url.paramString)).map!representation.joiner("&".representation);
+		auto baseString = only(encodeComponentSafe(method.text.toUpper()), encodeComponentSafe(copy_url.toString(false)), encodeComponentSafe(copy_url.paramString)).map!representation.joiner("&".representation);
 
 		put(signer, baseString);
 
@@ -380,9 +380,11 @@ struct Request(ContentType) {
 		params["realm"] = [""];
 		if (oauthMethod == OAuthMethod.header) {
 			string[] authString;
-			foreach (k, dv; params)
-				foreach (v; dv)
-					authString ~= format(`%s="%s"`, k, encodeComponent(v).replace("+", "%2B"));
+			foreach (k, dv; params) {
+				foreach (v; dv) {
+					authString ~= format(`%s="%s"`, k, encodeComponentSafe(v).replace("+", "%2B"));
+				}
+			}
 			addHeader("Authorization", "OAuth " ~ authString.join(", "));
 		}
 		if (oauthMethod == OAuthMethod.queryString) {
