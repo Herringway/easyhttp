@@ -4,10 +4,9 @@
 	"copyright": "Copyright © 2014, Cameron",
 	"authors": ["Cameron \"Herringway\" Ross"],
 	"dependencies": {
-		"libcurl": ">=7.34.0",
-		"arsd:dom": ">=0.1.0",
-		"siryul": "~>0.2",
-		"requests": "~>0.4.0"
+		"arsd:dom": "~>0.1.0",
+		"siryul": "~>0.3",
+		"requests": "~>0.5.3"
 	},
 	"subConfigurations": {
 	    "requests": "vibed"
