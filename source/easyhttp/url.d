@@ -116,7 +116,8 @@ struct URL {
 		}
 	}
 	///ditto
-	this(string str) @safe pure nothrow {
+	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
+		import std.utf : byCodeUnit;
 		this.protocol = str.urlProtocol;
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
@@ -128,18 +129,23 @@ struct URL {
 				this.path = splitComponents.drop(3).join("/");
 			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
-				foreach (arg; existingParameters[1..$].split("&")) {
-					auto splitArg = arg.split("=");
-					() @trusted nothrow {
-						try {
-							if (splitArg.length > 1)
-								this.params[decode(splitArg[0].replace("+", " "))] = [decode(splitArg[1].replace("+", " "))];
-							else
-								this.params[decode(arg.replace("+", " "))] = [""];
-						} catch (Exception) {
-							assert(0, "Invalid char decoded");
+				foreach (arg; existingParameters[1..$].byCodeUnit.splitter!(x => x == (semicolonQueryParameters ? ';' : '&'))) {
+					auto splitArg = arg.splitter("=");
+					if (splitArg.empty) {
+						continue;
+					}
+					string key = "";
+					string value = "";
+					try {
+						key = decodeComponentSafe(splitArg.front.array.replace("+", " "));
+						splitArg.popFront();
+						if (!splitArg.empty) {
+							value = decodeComponentSafe(splitArg.front.array.replace("+", " "));
 						}
-					}();
+					} catch (Exception) {
+						assert(0, "Invalid char decoded");
+					}
+					this.params[key] ~= value;
 				}
 				this.path = this.path.split("?")[0];
 			}
@@ -289,6 +295,8 @@ struct URL {
 	assert(URL("something").toString() == "something", "Path-only relative URL recreation failure");
 	assert(URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
 	assert(URL("/something?a=b:d").toString() == "/something?a=b%3Ad");
+	assert(URL("http://url.example/?a=b&&").toString() == "http://url.example/?a=b");
+	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).toString() == "http://url.example/?a=b");
 }
 @safe pure unittest {
 	struct Test {
@@ -351,6 +359,7 @@ struct URL {
 	assert(URL("http://url.example/?hello+").params == ["hello ":[""]], "URIArguments: Key only with plus sign failure");
 	assert(URL("http://url.example/?hello+=").params == ["hello ":[""]], "URIArguments: Empty value with plus sign failure");
 	assert(URL("http://url.example/?hello+=").text == "http://url.example/?hello%20");
+	assert(URL("http://url.example/?hello=1&hello=2").params == ["hello":["1", "2"]], "URIArguments: Duplicate key failure");
 	auto url = URL("http://url.example");
 	url.params["hello"] = ["+"];
 	assert(url.text == "http://url.example/?hello=%2B");
