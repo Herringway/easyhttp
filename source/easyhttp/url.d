@@ -162,7 +162,7 @@ struct URL {
 	/++
 	 + Returns a new URL with the set of parameters specified.
 	 +/
-	URL withParams(T)(T inParams) if (isURLEncodable!T) {
+	URL withParams(T)(T inParams) const if (isURLEncodable!T) {
 		return URL(protocol, hostname, path, inParams);
 	}
 	/++
