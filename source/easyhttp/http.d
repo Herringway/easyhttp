@@ -29,9 +29,6 @@ import easyhttp.fs;
 import easyhttp.url;
 import easyhttp.urlencoding;
 
-version(Have_arsd_dom) public import arsd.dom : Document, Element;
-version(Have_siryul) public import siryul : Optional, AsString, SiryulizeAs;
-
 enum packageName = "easyhttp";
 enum packageVersion = "v0.0.0";
 
@@ -194,7 +191,7 @@ enum POSTDataType {
  + An HTTP Request.
  +/
 struct Request(ContentType) {
-	import requests : QueryParam;
+	import requests.utils : QueryParam;
 	private struct Hash {
 		Nullable!string hash;
 		Nullable!string original;
@@ -486,36 +483,6 @@ struct Request(ContentType) {
 		} else
 			return _content.to!T;
 	 }
-	/++
-	 + Returns body of response as parsed JSON.
-	 +
-	 + If a type T is specified, an attempt at automatically deserializing
-	 + the JSON as the specified type is made.
-	 +
-	 + Params:
-	 +  T = optional type to attempt deserialization to
-	 +/
-	T json(T = JSONValue)() {
-		static if (is(T==JSONValue)) {
-			return parseJSON(content);
-		} else {
-			version(Have_siryul) {
-				import siryul : fromString, JSON;
-				return content.fromString!(T,JSON);
-			} else
-				assert(0, "Unable to serialize without serialization library");
-		}
-	}
-	version(Have_arsd_dom) {
-		/++
-		 + Returns body of response as a parsed HTML document.
-		 +
-		 + See arsd.dom for details and usage.
-		 +/
-		Document dom() {
-			return new Document(content);
-		}
-	}
 	/++
 	 + Performs the request.
 	 +/

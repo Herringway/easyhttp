@@ -106,7 +106,7 @@ struct URLParameters {
  +  value = The structure to encode
  +/
 auto urlEncode(T)(T value) if (isURLEncodable!T) {
-	import requests : QueryParam;
+	import requests.utils : QueryParam;
 	QueryParam[] output;
 	foreach (key, values; urlEncodeInternal!(T, false)(value))
 		foreach (value; values)
@@ -115,7 +115,7 @@ auto urlEncode(T)(T value) if (isURLEncodable!T) {
 }
 ///
 @safe pure unittest {
-	import requests : QueryParam;
+	import requests.utils : QueryParam;
 	struct Beep {
 		string a;
 		uint b;
@@ -155,7 +155,7 @@ auto urlEncoded(T : string[][string])(T val) {
 	return urlEncoded(URLParameters(val));
 }
 auto urlEncoded(T)(T value) if (isURLEncodable!T) {
-	import requests : QueryParam;
+	import requests.utils : QueryParam;
 	QueryParam[] output;
 	foreach (key, values; urlEncodeInternal!(T, true)(value))
 		foreach (value; values)
@@ -164,7 +164,7 @@ auto urlEncoded(T)(T value) if (isURLEncodable!T) {
 }
 ///
 @safe pure unittest {
-	import requests : QueryParam;
+	import requests.utils : QueryParam;
 	struct Beep {
 		string a;
 		uint b;
