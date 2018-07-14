@@ -395,6 +395,10 @@ struct Request(ContentType) {
 			url.params["oauth_token"] = params["oauth_token"];
 		}
 	}
+
+	void authorizationBasic(string user, string pass) {
+		addHeader("Authorization", "Basic "~Base64.encode((user~":"~pass).representation).idup);
+	}
 	/++
 	 + The expected size of the body if available.
 	 +
@@ -894,6 +898,13 @@ class HTTPException : Exception {
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
 		version(online) {
 			assert(req.content == "something");
+		}
+	}
+	{ //BASIC Auth
+		auto req = get(testURL);
+		req.authorizationBasic("Test", "Password");
+		version(online) {
+			assert(req.content == "Test\nPassword");
 		}
 	}
 }
