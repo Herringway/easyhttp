@@ -139,7 +139,7 @@ struct Cookie {
 	string value;
 }
 immutable Nullable!(string, "") systemCertPath;
-static this() {
+shared static this() {
 	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
 	version(Linux) immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
 	version(FreeBSD) immutable caCertSearchPaths = ["/usr/local/share/certs/ca-root-nss.crt"];
