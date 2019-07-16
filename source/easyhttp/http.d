@@ -232,6 +232,7 @@ struct Request(ContentType) {
 	bool peerVerification = true;
 	///Whether to output verbose debugging information to stdout
 	bool verbose;
+	string contentType = "application/octet-stream";
 	Cookie[] cookies;
 	private POSTDataType postDataType;
 	private QueryParam[] formPOSTData;
@@ -540,7 +541,7 @@ struct Request(ContentType) {
 						response = req.post(url.text, formPOSTData);
 						break;
 					case POSTDataType.raw:
-						response = req.post(url.text, rawPOSTData, "application/octet-stream");
+						response = req.post(url.text, rawPOSTData, contentType);
 						break;
 				}
 				break;
