@@ -380,3 +380,10 @@ struct URL {
 @safe pure unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
+@safe pure unittest {
+	with(URL("http://url.example/?test", ["test2": ["value"]]).withParams(["test3": ["value"]])) {
+		assert("test" in params);
+		assert("test2" in params);
+		assert("test3" in params);
+	}
+}

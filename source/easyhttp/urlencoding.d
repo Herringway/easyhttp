@@ -13,6 +13,9 @@ import std.uri;
 
 struct URLParameters {
 	string[][string] params;
+	auto opBinaryRight(string op : "in")(string key) {
+		return key in params;
+	}
 	auto ref opIndex(string key) {
 		return params[key];
 	}
@@ -317,6 +320,10 @@ package URLParameters toURLParams(T)(in T value) if (is(T == struct)) {
 		bool[] c;
 	}
 	assert(Something("test", 3, [true, false, true]).toURLParams == ["a": ["test"], "b": ["3"], "c": ["true,false,true"]]);
+}
+@safe pure unittest {
+	URLParameters p;
+	assert("x" !in p);
 }
 /++
  + Detect whether or not a type T is URL-encodable.
