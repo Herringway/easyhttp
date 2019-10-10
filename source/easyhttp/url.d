@@ -163,7 +163,11 @@ struct URL {
 	 + Returns a new URL with the set of parameters specified.
 	 +/
 	URL withParams(T)(T inParams) const if (isURLEncodable!T) {
-		return URL(protocol, hostname, path, inParams);
+		auto url = URL(protocol, hostname, path, inParams);
+		foreach (k, v; params) {
+			url.params[k] ~= v;
+		}
+		return url;
 	}
 	/++
 	 + Transforms the parameters for this URL to a URL-encoded string.
