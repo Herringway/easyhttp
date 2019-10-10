@@ -241,7 +241,7 @@ struct Request(ContentType) {
 	private Nullable!string outFile;
 	invariant() {
 		if (!url.isNull)
-			assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
+			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
 	}
 	private this(URL initial) nothrow {
 		debug(verbosehttp) verbose = true;
@@ -267,9 +267,10 @@ struct Request(ContentType) {
 	 + The default filename for the file being requested.
 	 +/
 	string filename() nothrow const pure {
-		if (!overriddenFilename.isNull)
-			return overriddenFilename;
-		return url.fileName;
+		if (!overriddenFilename.isNull) {
+			return overriddenFilename.get;
+		}
+		return url.get.fileName;
 	}
 	/++
 	 + Information about a file saved with the saveTo function.
@@ -361,7 +362,7 @@ struct Request(ContentType) {
 		else static assert(0, "Unknown hash");
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 		URLParameters params;
-		auto copy_url = URL(url.protocol, url.hostname, url.path, url.params);
+		auto copy_url = URL(url.get.protocol, url.get.hostname, url.get.path, url.get.params);
 		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.consumerToken];
 		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.token];
 		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text];
@@ -387,13 +388,13 @@ struct Request(ContentType) {
 		}
 		if (oauthMethod == OAuthMethod.queryString) {
 			enforce(!url.isNull, "can't add oauth params to nonexistant URL");
-			url.params["oauth_version"] = ["1.0"];
-			url.params["oauth_signature"] = params["oauth_signature"];
-			url.params["oauth_signature_method"] = params["oauth_signature_method"];
-			url.params["oauth_nonce"] = params["oauth_nonce"];
-			url.params["oauth_timestamp"] = params["oauth_timestamp"];
-			url.params["oauth_consumer_key"] = params["oauth_consumer_key"];
-			url.params["oauth_token"] = params["oauth_token"];
+			url.get.params["oauth_version"] = ["1.0"];
+			url.get.params["oauth_signature"] = params["oauth_signature"];
+			url.get.params["oauth_signature_method"] = params["oauth_signature_method"];
+			url.get.params["oauth_nonce"] = params["oauth_nonce"];
+			url.get.params["oauth_timestamp"] = params["oauth_timestamp"];
+			url.get.params["oauth_consumer_key"] = params["oauth_consumer_key"];
+			url.get.params["oauth_token"] = params["oauth_token"];
 		}
 	}
 
@@ -516,8 +517,8 @@ struct Request(ContentType) {
 			req.sslSetCaCert(systemCertPath);
 		}
 		if (!certPath.isNull) {
-			enforce(certPath.exists, "Certificate path not found");
-			req.sslSetCaCert(certPath);
+			enforce(certPath.get.exists, "Certificate path not found");
+			req.sslSetCaCert(certPath.get);
 		}
 		req.addHeaders(outHeaders);
 		req.sslSetVerifyPeer(peerVerification);
@@ -553,7 +554,7 @@ struct Request(ContentType) {
 		}
 		assert(response !is null);
 		if (!outFile.isNull) {
-			response.receiveAsRange().copy(File(outFile, "wb").lockingBinaryWriter);
+			response.receiveAsRange().copy(File(outFile.get, "wb").lockingBinaryWriter);
 		} else {
 			_content = response.responseBody.data;
 		}
@@ -568,29 +569,29 @@ struct Request(ContentType) {
 				overriddenFilename = disposition.filename;
 		}
 		if ("content-md5" in _headers) {
-			enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true), toHexString(Base64.decode(_headers["content-md5"]))));
+			enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true).hash.get, toHexString(Base64.decode(_headers["content-md5"]))));
 		}
 		if ("content-length" in _headers) {
 			if (!outFile.isNull) {
-				enforce(File(outFile, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
+				enforce(File(outFile.get, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
 			} else {
 				enforce(req.contentLength == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 			}
 		}
 		if (!md5(true).original.isNull()) {
-			enforce(md5.original == md5.hash, new HashException("MD5", md5.original, md5.hash));
+			enforce(md5.original == md5.hash, new HashException("MD5", md5.original.get, md5.hash.get));
 		}
 		if (!sha1(true).original.isNull()) {
-			enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original, sha1.hash));
+			enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original.get, sha1.hash.get));
 		}
 		if (!sizeExpected.isNull) {
-			enforce(_content.length == sizeExpected, new HTTPException("Size of data mismatched expected size"));
+			enforce(_content.length == sizeExpected.get, new HTTPException("Size of data mismatched expected size"));
 		}
 		if (checkNoContent) {
 			enforce(_content.length > 0, new HTTPException("No data received"));
 		}
 		if (!ignoreStatus) {
-			enforce(statusCode < 300, new StatusException(statusCode, url));
+			enforce(statusCode < 300, new StatusException(statusCode, url.get));
 		}
 		fetched = true;
 	}
