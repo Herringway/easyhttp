@@ -111,9 +111,11 @@ struct URLParameters {
 auto urlEncode(T)(T value) if (isURLEncodable!T) {
 	import requests.utils : QueryParam;
 	QueryParam[] output;
-	foreach (key, values; urlEncodeInternal!(T, false)(value))
-		foreach (value; values)
-			output ~= QueryParam(key, value);
+	foreach (key, values; urlEncodeInternal!(T, false)(value)) {
+		foreach (val; values) {
+			output ~= QueryParam(key, val);
+		}
+	}
 	return output;
 }
 ///
