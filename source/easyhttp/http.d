@@ -525,12 +525,12 @@ struct Request(ContentType) {
 		if (!outFile.isNull) {
 			req.useStreaming = true;
 		}
-		requests.Cookie[] reqCookies;
+		RefCounted!Cookies reqCookies;
 		foreach (cookie; cookies) {
 			alias ReqCookie = requests.Cookie;
 			reqCookies ~= ReqCookie(cookie.path, cookie.domain, cookie.key, cookie.value);
 		}
-		req.cookie(reqCookies);
+		req.cookie = reqCookies;
 		Response response;
 		final switch(method) {
 			case HTTPMethod.post:
@@ -575,7 +575,7 @@ struct Request(ContentType) {
 			if (!outFile.isNull) {
 				enforce(File(outFile.get, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
 			} else {
-				enforce(req.contentLength == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+				enforce(response.contentLength == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
 			}
 		}
 		if (!md5(true).original.isNull()) {
