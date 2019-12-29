@@ -195,7 +195,6 @@ struct Request(ContentType) {
 	private struct Hash {
 		Nullable!string hash;
 		Nullable!string original;
-		alias hash this;
 		this(string inHash) pure @safe {
 			original = inHash;
 		}
@@ -569,7 +568,7 @@ struct Request(ContentType) {
 				overriddenFilename = disposition.filename;
 		}
 		if ("content-md5" in _headers) {
-			enforce(md5(true) == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true).hash.get, toHexString(Base64.decode(_headers["content-md5"]))));
+			enforce(md5(true).hash.get == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true).hash.get, toHexString(Base64.decode(_headers["content-md5"]))));
 		}
 		if ("content-length" in _headers) {
 			if (!outFile.isNull) {
