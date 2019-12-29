@@ -66,7 +66,7 @@ version(downloadmanager) {
 			send(parent, true, thisTid);
 			receive(
 				(QueuedDownload download) {
-					try { 
+					try {
 						//send(parent, download.ID);
 					} catch (Exception e) {
 						//send(parent, immutable DownloadError(download.ID, e.msg));
