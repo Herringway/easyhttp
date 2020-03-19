@@ -38,7 +38,6 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 	import std.algorithm : among, filter, min;
 	import std.array : array;
 	import std.path : absolutePath, baseName, buildNormalizedPath, dirName, extension;
-	import std.string : removechars;
 	import std.utf : byCodeUnit;
 	FileSystemPath dest = inPath;
 	try {
