@@ -239,13 +239,15 @@ struct Request(ContentType) {
 
 	private Nullable!string outFile;
 	invariant() {
-		if (!url.isNull)
+		if (!url.isNull) {
 			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
+		}
 	}
 	private this(URL initial) nothrow {
 		debug(verbosehttp) verbose = true;
-		if ("User-Agent" !in outHeaders)
+		if ("User-Agent" !in outHeaders) {
 			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
+		}
 		url = initial;
 	}
 	/++
