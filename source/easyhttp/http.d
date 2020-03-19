@@ -35,7 +35,13 @@ enum packageVersion = "v0.0.0";
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
-public alias RequestType(T) = Request!T;
+
+enum reqsVerboseLevel = 4;
+debug(verbosehttp) {
+	enum verboseDefault = true;
+} else {
+	enum verboseDefault = false;
+}
 
 ///Paths to search for certificates
 public string[] extraCurlCertSearchPaths = [];
@@ -150,18 +156,21 @@ shared static this() {
 		}
 }
 
-auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
-	auto result = Request!T(inURL);
+auto getRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
+	auto result = Request(inURL);
 	result.method = HTTPMethod.get;
 	result.outHeaders = headers;
 	return result;
 }
 @safe pure nothrow unittest {
-	auto get1 = get(URL(URL.Proto.HTTPS, "localhost"));
-	auto get2 = get(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
+	auto get1 = getRequest(URL(URL.Proto.HTTPS, "localhost"));
+	auto get2 = getRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
 }
-auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
-	auto result = Request!T(inURL);
+auto get(URL inURL, URLHeaders headers = URLHeaders.init) {
+	return getRequest(inURL, headers).perform();
+}
+auto postRequest(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
+	auto result = Request(inURL);
 	result.method = HTTPMethod.post;
 	static if (is(U == ubyte[])) {
 		result.rawPOSTData = data;
@@ -177,10 +186,13 @@ auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init
 	return result;
 }
 @safe pure unittest {
-	auto post1 = post(URL(URL.Proto.HTTPS, "localhost"), "");
-	auto post2 = post(URL(URL.Proto.HTTPS, "localhost"), "", ["":""]);
-	auto post3 = post(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
-	auto post4 = post(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
+	auto post1 = postRequest(URL(URL.Proto.HTTPS, "localhost"), "");
+	auto post2 = postRequest(URL(URL.Proto.HTTPS, "localhost"), "", ["":""]);
+	auto post3 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
+	auto post4 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
+}
+auto post(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
+	return postRequest(inURL, data, headers).perform();
 }
 enum POSTDataType {
 	none,
@@ -190,15 +202,8 @@ enum POSTDataType {
 /++
  + An HTTP Request.
  +/
-struct Request(ContentType) {
+struct Request {
 	import requests.utils : QueryParam;
-	private struct Hash {
-		Nullable!string hash;
-		Nullable!string original;
-		this(string inHash) pure @safe {
-			original = inHash;
-		}
-	}
 	private struct OAuthParams {
 		string consumerToken;
 		string consumerSecret;
@@ -206,23 +211,15 @@ struct Request(ContentType) {
 		string tokenSecret;
 	}
 	private string bearerToken;
-	private const(ubyte)[] _content;
-	private URLHeaders _headers;
-	private URLHeaders outHeaders;
-	private Cookie[] outCookies;
 	private Nullable!size_t sizeExpected;
-	private bool fetched = false;
 	private bool checkNoContent = false;
 	///Maximum time to wait for the request to complete
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
 	Nullable!URL url;
 	package HTTPMethod method;
-	private OAuthParams oAuthParams;
-	///The HTTP status code last seen
-	HTTPStatus statusCode;
-	///Change filename for saved files
-	Nullable!string overriddenFilename;
+	private URLHeaders outHeaders;
+	private Nullable!OAuthParams oAuthParams;
 	///Certificate root store
 	Nullable!string certPath;
 	///Whether or not to ignore errors in the server's SSL certificate
@@ -230,106 +227,30 @@ struct Request(ContentType) {
 	///Whether or not to verify the certificate for HTTPS connections
 	bool peerVerification = true;
 	///Whether to output verbose debugging information to stdout
-	bool verbose;
+	bool verbose = verboseDefault;
 	string contentType = "application/octet-stream";
 	Cookie[] cookies;
 	private POSTDataType postDataType;
 	private QueryParam[] formPOSTData;
-	private ubyte[] rawPOSTData;
+	private immutable(ubyte)[] rawPOSTData;
 
-	private Nullable!string outFile;
+	//private Nullable!string outFile;
 	invariant() {
 		if (!url.isNull) {
 			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
 		}
 	}
-	private this(URL initial) nothrow {
-		debug(verbosehttp) verbose = true;
+	private this(URL initial) @safe pure nothrow {
 		if ("User-Agent" !in outHeaders) {
 			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
 		}
 		url = initial;
 	}
 	/++
-	 + Whether or not the request has been completed successfully.
-	 +/
-	bool isComplete() const @safe pure nothrow @nogc {
-		return fetched;
-	}
-	/++
-	 + Reset the state of this request.
-	 +/
-	void reset() nothrow pure @safe {
-		_content = [];
-		_headers = null;
-		fetched = false;
-	}
-	/++
 	 + The default filename for the file being requested.
 	 +/
-	string filename() nothrow const pure {
-		if (!overriddenFilename.isNull) {
-			return overriddenFilename.get;
-		}
+	string filename() @safe nothrow const pure {
 		return url.get.fileName;
-	}
-	/++
-	 + Information about a file saved with the saveTo function.
-	 +/
-	struct SavedFileInformation {
-		///Path that was used for actually saving the file.
-		string path;
-	}
-	/++
-	 + Saves the body of this request to a local path.
-	 +
-	 + Will not overwrite existing files unless overwrite is set.
-	 +
-	 + Params:
-	 +  dest = default destination for the file to be saved
-	 +  overwrite = whether or not to overwrite existing files
-	 +  clearAfterComplete = whether or not to clear the buffer after success
-	 +/
-	SavedFileInformation saveTo(string dest, bool overwrite = true, bool clearAfterComplete = false) {
-		scope(success) {
-			if (clearAfterComplete) {
-				reset();
-			}
-		}
-		auto output = SavedFileInformation();
-		if (!overwrite)
-			while (exists(dest))
-				dest = duplicateName(dest);
-		output.path = dest;
-		if (!exists(dest.dirName()))
-			mkdirRecurse(dest.dirName());
-		dest = dest.fixPath();
-		if (!fetched) {
-			outFile = dest;
-			fetchContent();
-		}
-		else {
-			auto writeFile = File(dest, "wb");
-
-			scope(exit) {
-				if (writeFile.isOpen) {
-					writeFile.flush();
-					writeFile.close();
-				}
-			}
-			writeFile.rawWrite(_content);
-		}
-		return output;
-	}
-	/++
-	 + The HTTP status code for a completed request.
-	 +
-	 + Completes the request if not already done.
-	 +/
-	HTTPStatus status() {
-		if (!fetched)
-			fetchContent(true);
-		return statusCode;
 	}
 	/++
 	 + Whether or not this request should fail upon receiving an empty body.
@@ -352,8 +273,9 @@ struct Request(ContentType) {
 	 +/
 	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) {
 		bearerToken = token;
-		if (method == OAuthMethod.header)
+		if (method == OAuthMethod.header) {
 			addHeader("Authorization", "Bearer "~token);
+		}
 	}
 	void oauth(Hash = SHA1)(OAuthMethod oauthMethod, in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) @safe {
 		static if (is(Hash == SHA1))
@@ -364,13 +286,13 @@ struct Request(ContentType) {
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 		URLParameters params;
 		auto copy_url = URL(url.get.protocol, url.get.hostname, url.get.path, url.get.params);
-		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.consumerToken];
-		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.token];
+		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.get.consumerToken];
+		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.get.token];
 		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text];
 		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-"~hashType];
 		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [Clock.currTime().toUTC().toUnixTime().text];
 		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
-		string signature = [encodeComponentSafe(oAuthParams.consumerSecret), encodeComponentSafe(oAuthParams.tokenSecret)].join("&");
+		string signature = [encodeComponentSafe(oAuthParams.get.consumerSecret), encodeComponentSafe(oAuthParams.get.tokenSecret)].join("&");
 		auto signer = HMAC!Hash(signature.representation);
 		auto baseString = only(encodeComponentSafe(method.text.toUpper()), encodeComponentSafe(copy_url.toString(false)), encodeComponentSafe(copy_url.paramString)).map!representation.joiner("&".representation);
 
@@ -410,7 +332,124 @@ struct Request(ContentType) {
 	ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
 		return sizeExpected;
 	}
-	private Hash[string] hashes;
+	alias Hash(T) = Nullable!(char[2*digestLength!T]);
+	Hash!MD5 expectedMD5;
+	Hash!SHA1 expectedSHA1;
+	Hash!SHA256 expectedSHA256;
+	Hash!SHA384 expectedSHA384;
+	Hash!SHA512 expectedSHA512;
+	/++
+	 + Whether or not to ignore errors in the server's SSL certificate.
+	 +/
+	ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
+		return ignoreHostCert;
+	}
+	/++
+	 + Performs the request.
+	 +/
+	auto perform() const
+	in(!url.isNull, "Missing URL")
+	{
+		import requests;
+		auto constructReq() {
+			auto req = requests.Request();
+			req.verbosity = verbose ? reqsVerboseLevel : 0;
+			if (!systemCertPath.isNull) {
+				req.sslSetCaCert(systemCertPath);
+			}
+			if (!certPath.isNull) {
+				enforce(certPath.get.exists, "Certificate path not found");
+				req.sslSetCaCert(certPath.get);
+			}
+			req.addHeaders(outHeaders);
+			req.sslSetVerifyPeer(peerVerification);
+			RefCounted!Cookies reqCookies;
+			foreach (cookie; cookies) {
+				alias ReqCookie = requests.Cookie;
+				reqCookies ~= ReqCookie(cookie.path, cookie.domain, cookie.key, cookie.value);
+			}
+			req.cookie = reqCookies;
+			return req;
+		}
+		auto getResponse(requests.Request req) {
+			final switch(method) {
+				case HTTPMethod.post:
+					final switch (postDataType) {
+						case POSTDataType.none:
+							return req.post(url.text, string[string].init);
+						case POSTDataType.form:
+							return req.post(url.text, formPOSTData);
+						case POSTDataType.raw:
+							return req.post(url.text, rawPOSTData, contentType);
+					}
+				case HTTPMethod.get:
+					return req.get(url.text);
+				case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
+					assert(0, "Unimplemented");
+			}
+		}
+		Response response;
+		auto req = constructReq();
+		debug(verbosehttp) writeln(req.tupleof);
+		auto requestsResponse = getResponse(req);
+		response._content = requestsResponse.responseBody.data;
+		response.statusCode = requestsResponse.code.to!HTTPStatus;
+		response._headers = requestsResponse.responseHeaders;
+		foreach (cookie; req.cookie) {
+			response.outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
+		}
+		if ("content-disposition" in response._headers) {
+			immutable disposition = parseDispositionString(response._headers["content-disposition"]);
+			if (!disposition.filename.isNull) {
+				response.overriddenFilename = disposition.filename;
+			}
+		}
+		if ("content-md5" in response._headers) {
+			enforce(response.md5 == toHexString(Base64.decode(response._headers["content-md5"])), new HashException("MD5", response.md5, toHexString(Base64.decode(response._headers["content-md5"]))));
+		}
+		if ("content-length" in response._headers) {
+			enforce(requestsResponse.contentLength == response._headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+		}
+		if (!expectedMD5.isNull) {
+			enforce(icmp(expectedMD5.get, response.md5) == 0, new HashException("MD5", expectedMD5.get, response.md5));
+		}
+		if (!expectedSHA1.isNull) {
+			enforce(icmp(expectedSHA1.get, response.sha1) == 0, new HashException("SHA1", expectedSHA1.get, response.sha1));
+		}
+		if (!expectedSHA256.isNull) {
+			enforce(icmp(expectedSHA256.get, response.sha256) == 0, new HashException("SHA256", expectedSHA256.get, response.sha256));
+		}
+		if (!expectedSHA384.isNull) {
+			enforce(icmp(expectedSHA384.get, response.sha384) == 0, new HashException("SHA384", expectedSHA384.get, response.sha384));
+		}
+		if (!expectedSHA512.isNull) {
+			enforce(icmp(expectedSHA512.get, response.sha512) == 0, new HashException("SHA512", expectedSHA512.get, response.sha512));
+		}
+		if (!sizeExpected.isNull) {
+			enforce(response._content.length == sizeExpected.get, new HTTPException("Size of data mismatched expected size"));
+		}
+		if (checkNoContent) {
+			enforce(response._content.length > 0, new HTTPException("No data received"));
+		}
+		return response;
+	}
+}
+	/++
+	 + Information about a file saved with the saveTo function.
+	 +/
+	//struct SavedFileInformation {
+	//	///Path that was used for actually saving the file.
+	//	string path;
+	//}
+
+struct Response {
+	private const(ubyte)[] _content;
+	///The HTTP status code last seen
+	HTTPStatus statusCode;
+	private URLHeaders _headers;
+	private Cookie[] outCookies;
+	///Change filename for saved files
+	Nullable!string overriddenFilename;
 	alias md5 = hash!MD5;
 	alias sha1 = hash!SHA1;
 	alias sha256 = hash!SHA256;
@@ -418,39 +457,12 @@ struct Request(ContentType) {
 	alias sha512 = hash!SHA512;
 	private template hash(HashMethod) {
 		/++
-		 + Sets an expected hash for the request.
-		 +/
-		void hash(string hash) @safe pure in {
-			assert(hash[].filter!(x => !(x >= '0' && x <= '9') && !(x >= 'a' && x <= 'f') && !(x >= 'A' && x <= 'F')).empty, "Non-hexadecimal characters found in hash");
-		} body {
-			enforce(hash.length == 2*digestLength!HashMethod, format("%s hash strings must be %s characters in length", HashMethod.stringof, 2*digestLength!HashMethod));
-			hashes[HashMethod.stringof] = Hash(hash.toUpper());
-		}
-		void hash(immutable(char)[2*digestLength!HashMethod] str) @safe pure nothrow in {
-			assert(str[].filter!(x => !(x >= '0' && x <= '9') && !(x >= 'a' && x <= 'f') && !(x >= 'A' && x <= 'F')).empty, "Non-hexadecimal characters found in hash");
-		} body {
-			hashes[HashMethod.stringof] = assumeWontThrow(Hash(str[].toUpper().dup));
-		}
-		/++
 		 + Gets the hash of the request body.
 		 +
 		 + Empty if request is incomplete.
 		 +/
-		public Hash hash(bool skipCompleteCheck = false) pure nothrow {
-			if (HashMethod.stringof !in hashes)
-				hashes[HashMethod.stringof] = Hash();
-			if (skipCompleteCheck || fetched)
-				hashes[HashMethod.stringof].hash = getHash!HashMethod;
-			return hashes[HashMethod.stringof];
-		}
-		///ditto
-		public Hash hash(bool skipCompleteCheck = false) pure nothrow const {
-			Hash output;
-			if (HashMethod.stringof in hashes)
-				output = hashes[HashMethod.stringof];
-			if (skipCompleteCheck || fetched)
-				output.hash = getHash!HashMethod;
-			return output;
+		public string hash() @safe pure nothrow const {
+			return getHash!HashMethod;
 		}
 	}
 	private string getHash(HashMethod)() pure nothrow const if(isDigest!HashMethod) {
@@ -459,143 +471,74 @@ struct Request(ContentType) {
 		return hash.finish().toHexString!(Order.increasing, LetterCase.upper);
 	}
 	/++
-	 + Whether or not to ignore errors in the server's SSL certificate.
-	 +/
-	ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
-		return ignoreHostCert;
-	}
-	/++
-	 + Returns body of response as a string.
-	 +/
-	T content(T = string)() {
-		if (!fetched)
-			fetchContent(false);
-		return contentInternal!T;
-	}
-	/++
+	 + The HTTP status code for a completed request.
 	 +
+	 + Completes the request if not already done.
 	 +/
-	 T content(T = string)() const {
-		enforce(fetched);
-		return contentInternal!T;
-	 }
-	 private T contentInternal(T = string)() const {
-		static if (is(T == string)) {
-			static if (!is(ContentType == string)) {
-				string data;
-				transcode(cast(ContentType)_content, data);
-				return data;
-			} else
-				return _content.assumeUTF;
-		} else
-			return _content.to!T;
-	 }
-	/++
-	 + Performs the request.
-	 +/
-	void perform(bool ignoreStatus = false) {
-		if (!fetched)
-			fetchContent(ignoreStatus);
+	HTTPStatus status() @safe {
+		return statusCode;
 	}
 	/++
 	 + Returns headers of response.
 	 +
 	 + Performs the request if not already done.
 	 +/
-	const(URLHeaders) headers() {
-		if (!fetched)
-			fetchContent(true);
+	const(URLHeaders) headers() @safe {
 		return _headers;
 	}
-	//fetch content using requests library
-	private void fetchContent(bool ignoreStatus = false) in {
-		assert(!url.isNull, "URL not set");
-	} body {
-		import requests;
-		auto req = requests.Request();
-		req.verbosity = verbose ? 3 : 0;
-		if (!systemCertPath.isNull) {
-			req.sslSetCaCert(systemCertPath);
-		}
-		if (!certPath.isNull) {
-			enforce(certPath.get.exists, "Certificate path not found");
-			req.sslSetCaCert(certPath.get);
-		}
-		req.addHeaders(outHeaders);
-		req.sslSetVerifyPeer(peerVerification);
-		if (!outFile.isNull) {
-			req.useStreaming = true;
-		}
-		RefCounted!Cookies reqCookies;
-		foreach (cookie; cookies) {
-			alias ReqCookie = requests.Cookie;
-			reqCookies ~= ReqCookie(cookie.path, cookie.domain, cookie.key, cookie.value);
-		}
-		req.cookie = reqCookies;
-		Response response;
-		final switch(method) {
-			case HTTPMethod.post:
-				final switch (postDataType) {
-					case POSTDataType.none:
-						response = req.post(url.text, string[string].init);
-						break;
-					case POSTDataType.form:
-						response = req.post(url.text, formPOSTData);
-						break;
-					case POSTDataType.raw:
-						response = req.post(url.text, rawPOSTData, contentType);
-						break;
-				}
-				break;
-			case HTTPMethod.get:
-				response = req.get(url.text);
-				break;
-			case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
-				assert(0);
-		}
-		assert(response !is null);
-		if (!outFile.isNull) {
-			response.receiveAsRange().copy(File(outFile.get, "wb").lockingBinaryWriter);
-		} else {
-			_content = response.responseBody.data;
-		}
-		statusCode = cast(HTTPStatus)response.code;
-		_headers = response.responseHeaders;
-		foreach (cookie; req.cookie) {
-			outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
-		}
-		if ("content-disposition" in _headers) {
-			immutable disposition = parseDispositionString(_headers["content-disposition"]);
-			if (!disposition.filename.isNull)
-				overriddenFilename = disposition.filename;
-		}
-		if ("content-md5" in _headers) {
-			enforce(md5(true).hash.get == toHexString(Base64.decode(_headers["content-md5"])), new HashException("MD5", md5(true).hash.get, toHexString(Base64.decode(_headers["content-md5"]))));
-		}
-		if ("content-length" in _headers) {
-			if (!outFile.isNull) {
-				enforce(File(outFile.get, "r").size == _headers["content-length"].to!ulong, new HTTPException("Content length mismatched"));
-			} else {
-				enforce(response.contentLength == _headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
-			}
-		}
-		if (!md5(true).original.isNull()) {
-			enforce(md5.original == md5.hash, new HashException("MD5", md5.original.get, md5.hash.get));
-		}
-		if (!sha1(true).original.isNull()) {
-			enforce(sha1.original == sha1.hash, new HashException("SHA1", sha1.original.get, sha1.hash.get));
-		}
-		if (!sizeExpected.isNull) {
-			enforce(_content.length == sizeExpected.get, new HTTPException("Size of data mismatched expected size"));
-		}
-		if (checkNoContent) {
-			enforce(_content.length > 0, new HTTPException("No data received"));
-		}
-		if (!ignoreStatus) {
-			enforce(statusCode < 300, new StatusException(statusCode, url.get));
-		}
-		fetched = true;
+	/++
+	 + Returns body of response as a string.
+	 +/
+	T content(T = string)() {
+		return contentInternal!T;
 	}
+	/++
+	 +
+	 +/
+	 T content(T = string)() const {
+		return contentInternal!T;
+	 }
+	 private T contentInternal(T = string)() const {
+		static if (is(T == string)) {
+			return _content.assumeUTF;
+		} else {
+			return _content.to!T;
+		}
+	 }
+	/++
+	 + Saves the body of this request to a local path.
+	 +
+	 + Will not overwrite existing files unless overwrite is set.
+	 +
+	 + Params:
+	 +  dest = default destination for the file to be saved
+	 +  overwrite = whether or not to overwrite existing files
+	 +  clearAfterComplete = whether or not to clear the buffer after success
+	 +/
+	//SavedFileInformation saveTo(string dest, bool overwrite = true, bool clearAfterComplete = false) {
+	//	auto output = SavedFileInformation();
+	//	if (!overwrite) {
+	//		while (exists(dest)) {
+	//			dest = duplicateName(dest);
+	//		}
+	//	}
+	//	output.path = dest;
+	//	if (!exists(dest.dirName())) {
+	//		mkdirRecurse(dest.dirName());
+	//	}
+	//	dest = dest.fixPath();
+	//	auto writeFile = File(dest, "wb");
+
+	//	scope(exit) {
+	//		if (writeFile.isOpen) {
+	//			writeFile.flush();
+	//			writeFile.close();
+	//		}
+	//	}
+	//	writeFile.rawWrite(_content);
+	//	return output;
+	//}
+
 }
 /++
  + A parsed content-disposition string
@@ -627,8 +570,8 @@ auto parseDispositionString(string str) @safe {
 /++
  + A useless HTTP request for testing
  +/
-auto nullResponse() {
-	return get(URL(URL.Proto.HTTP, "localhost", "/"));
+auto nullRequest() @safe {
+	return getRequest(URL(URL.Proto.HTTP, "localhost", "/"));
 }
 /++
  + Exception thrown when an unexpected status is encountered.
@@ -644,7 +587,7 @@ class StatusException : HTTPException {
 	 +  file = The file where the error occurred
      +  line = The line where the error occurred
 	 +/
-	this(HTTPStatus errorCode, URL url, string file = __FILE__, size_t line = __LINE__) {
+	this(HTTPStatus errorCode, const URL url, string file = __FILE__, size_t line = __LINE__) {
 		code = errorCode;
 		super(format("Error %d (%s) fetching URL %s", errorCode, errorCode, url), file, line);
 	}
@@ -663,7 +606,7 @@ class HashException : HTTPException {
 	 +  file = The file where the error occurred
      +  line = The line where the error occurred
 	 +/
-	this(string hashType, string badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure in {
+	this(const(char)[] hashType, const(char)[] badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure in {
 		assert(goodHash != badHash, "Good hash and mismatched hash match!");
 	} body {
 		super(format("Hash mismatch (%s): %s != %s", hashType, badHash, goodHash), file, line);
@@ -687,7 +630,7 @@ class HTTPException : Exception {
 }
 //Test to ensure initial construction is safe, pure, and nothrow
 @safe pure nothrow unittest {
-	get(URL(URL.Proto.HTTP, "localhost", "/"));
+	getRequest(URL(URL.Proto.HTTP, "localhost", "/"));
 }
 //will be @safe once requests supports it
 @system unittest {
@@ -698,216 +641,194 @@ class HTTPException : Exception {
 	enum testURLHTTPS = URL("https://misc.herringway.pw/.test/");
 	auto testHeaders = ["Referer": testURL.hostname];
 	{
-		auto req = get(testURL);
-		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
-		version(online) {
-			assertNotThrown(req.status, "MD5 failure (lowercase)");
-			assert(req.isComplete);
+		auto req = getRequest(testURL);
+		req.expectedMD5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
+		version(online) with (req.perform()) {
+			assert(status == 200);
 		}
 	}
 	{
-		auto req = get(testURLHTTPS);
-		req.md5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
-		version(online) {
-			assertNotThrown(req.status, "MD5 failure (lowercase, HTTPS)");
-			assert(req.isComplete);
+		auto req = getRequest(testURLHTTPS);
+		req.expectedMD5 = "7528035a93ee69cedb1dbddb2f0bfcc8";
+		version(online) with (req.perform()) {
+			assert(status == 200);
 		}
 	}
 	{
-		auto req = get(URL("https://expired.badssl.com"));
+		auto req = getRequest(URL("https://expired.badssl.com"));
 		version(online) {
-			assertThrown(req.status, "HTTPS on expired cert succeeded");
+			assertThrown(req.perform(), "HTTPS on expired cert succeeded");
 		}
 	}
 	{
-		auto req = get(URL("https://expired.badssl.com"));
+		auto req = getRequest(URL("https://expired.badssl.com"));
 		req.peerVerification = false;
-		version(online) {
-			assertNotThrown(req.status, "HTTPS without peer verification failed on expired cert");
+		version(online) with (req.perform()) {
+			assert(status == 200);
 		}
 	}
 	{
-		auto req = get(testURL);
-		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC8";
+		auto req = getRequest(testURL);
+		req.expectedMD5 = "7528035A93EE69CEDB1DBDDB2F0BFCC8";
 		version(online) {
-			assertNotThrown(req.status, "MD5 failure (uppercase)");
-			assert(req.isComplete);
+			assertNotThrown(req.perform(), "MD5 failure (uppercase)");
 		}
 	}
 	{
-		auto req = get(testURL);
-		req.sha1 = "f030bbbd32966cde41037b98a8849c46b76e4bc1";
+		auto req = getRequest(testURL);
+		req.expectedSHA1 = "f030bbbd32966cde41037b98a8849c46b76e4bc1";
 		version(online) {
-			assertNotThrown(req.status, "SHA1 failure (lowercase)");
-			assert(req.isComplete);
+			assertNotThrown(req.perform(), "SHA1 failure (lowercase)");
 		}
 	}
 	{
-		auto req = get(testURL);
-		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC1";
+		auto req = getRequest(testURL);
+		req.expectedSHA1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC1";
 		version(online) {
-			assertNotThrown(req.status, "SHA1 failure (uppercase)");
-			assert(req.isComplete);
+			assertNotThrown(req.perform(), "SHA1 failure (uppercase)");
 		}
 	}
 	{
-		auto req = get(testURL);
-		req.md5 = "7528035A93EE69CEDB1DBDDB2F0BFCC9";
+		auto req = getRequest(testURL);
+		req.expectedMD5 = "7528035A93EE69CEDB1DBDDB2F0BFCC9";
 		version(online) {
-			assertThrown(req.status, "Bad MD5 (incorrect hash)");
+			assertThrown(req.perform(), "Bad MD5 (incorrect hash)");
 		}
 	}
 	{
-		auto req = get(testURL);
-		assertThrown((req.md5 = ""), "Bad MD5 (empty string)");
-	}
-	{
-		auto req = get(testURL);
-		assertThrown((req.md5 = "BAD"), "Bad MD5 (BAD)");
-	}
-	{
-		auto req = get(testURL);
-		assertThrown((req.sha1 = "BAD"), "Bad SHA1 (BAD)");
-	}
-	{
-		auto req = get(testURL);
-		req.sha1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC2";
+		auto req = getRequest(testURL);
+		req.expectedSHA1 = "F030BBBD32966CDE41037B98A8849C46B76E4BC2";
 		version(online) {
-			assertThrown(req.status, "Bad SHA1 (incorrect hash)");
+			assertThrown(req.perform(), "Bad SHA1 (incorrect hash)");
 		}
 	}
  	{
- 		auto req = get(testURL);
- 		req.expectedSize = 3;
+		auto req = getRequest(testURL);
+		req.expectedSize = 3;
 		version(online) {
-			assertNotThrown(req.status, "Expected size failure (correct size given)");
-			assert(req.isComplete);
+			assertNotThrown(req.perform(), "Expected size failure (correct size given)");
 		}
- 		req = get(testURL);
- 		req.expectedSize = 4;
+		req = getRequest(testURL);
+		req.expectedSize = 4;
 		version(online) {
-			assertThrown(req.status, "Expected size failure (intentional bad size)");
+			assertThrown(req.perform(), "Expected size failure (intentional bad size)");
 		}
  	}
 	{
-		auto req = post(testURL, "hi");
+		auto req = postRequest(testURL, "hi");
 		req.guaranteedData = true;
-		version(online) {
-			assertNotThrown(req.status);
-			assert(req.isComplete);
-			assert(req.content == "hi");
+		version(online) with (req.perform()) {
+			assert(content == "hi");
 		}
 	}
 	{
-		auto req = post(testURLHTTPS, "hi");
+		auto req = postRequest(testURLHTTPS, "hi");
 		req.guaranteedData = true;
-		version(online) {
-			assertNotThrown(req.status);
-			assert(req.isComplete);
-			assert(req.content == "hi");
+		version(online) with (req.perform()) {
+			assert(content == "hi");
 		}
 	}
 	{
-		auto req = post(testURLHTTPS, ["testparam": "hello"]);
+		auto req = postRequest(testURLHTTPS, ["testparam": "hello"]);
+		import std.stdio;
+		debug writeln(req);
 		req.guaranteedData = true;
-		version(online) {
-			assertNotThrown(req.status);
-			assert(req.isComplete);
-			assert(req.content == "test param received");
+		version(online) with (req.perform()) {
+			import std.stdio;
+			writeln("'", content, "'");
+			assert(content == "test param received");
 		}
 	}
 	{
-		auto req = post(testURLHTTPS, ["printparam": "hello&"]);
+		auto req = postRequest(testURLHTTPS, ["printparam": "hello&"]);
 		req.guaranteedData = true;
-		version(online) {
-			assertNotThrown(req.status);
-			assert(req.isComplete);
-			assert(req.content == "hello&");
+		version(online) with (req.perform()) {
+			assert(content == "hello&");
 		}
 	}
 	{
-		auto req = post(testURL, "");
+		auto req = postRequest(testURL, "");
 		req.guaranteedData = true;
 		version(online) {
-			assertThrown(req.status);
+			assertThrown(req.perform());
 		}
 	}
 	{
-		auto req = get(testURL, testHeaders);
-		version(online) {
-			assert(req.content == "GET", "GET URL failure");
-			assert(req.status == HTTPStatus.OK, "200 status undetected");
-			assert(req.isComplete);
+		auto req = getRequest(testURL, testHeaders);
+		version(online) with (req.perform()) {
+			assert(content == "GET");
+			assert(status == HTTPStatus.OK);
 		}
 	}
 	version(online) {
-		assertThrown(get(testURL.withParams(["403":""])).perform());
-		assert(get(testURL.withParams(["403":""])).status == HTTPStatus.Forbidden, "403 error undetected");
-		assertThrown(get(testURL.withParams(["404":""])).perform());
-		assert(get(testURL.withParams(["404":""])).status == HTTPStatus.NotFound, "404 error undetected");
-		assertThrown(get(testURL.withParams(["500":""])).perform());
-		assert(get(testURL.withParams(["500":""])).status == HTTPStatus.InternalServerError, "500 error undetected");
-		assert(post(testURL, "beep", testHeaders).content == "beep", "POST URL failed");
+		assertThrown(getRequest(testURL.withParams(["403":""])).perform());
+		with(getRequest(testURL.withParams(["403":""])).perform()) {
+			assert(status == HTTPStatus.Forbidden);
+		}
+		assertThrown(getRequest(testURL.withParams(["404":""])).perform());
+		with(getRequest(testURL.withParams(["404":""])).perform()) {
+			assert(status == HTTPStatus.NotFound);
+		}
+		assertThrown(getRequest(testURL.withParams(["500":""])).perform());
+		with(getRequest(testURL.withParams(["500":""])).perform()) {
+			assert(status == HTTPStatus.InternalServerError);
+		}
+		with(postRequest(testURL, "beep", testHeaders).perform()) {
+			assert(content == "beep");
+		}
 	}
 	{
-		auto req = get(testURL.withParams(["saveas":"example"]));
+		auto req = getRequest(testURL.withParams(["saveas":"example"]));
 		version(online) {
 			req.perform();
 			assert(req.filename == "example", "content-disposition failure");
 		}
 	}
 	{
-		auto req = get(testURL.withParams(["PRINTHEADER": ""]));
+		auto req = getRequest(testURL.withParams(["PRINTHEADER": ""]));
 		req.outHeaders["echo"] = "hello world";
-		version(online) {
-			assert(req.content == "hello world", "adding header failed");
+		version(online) with (req.perform()) {
+			assert(content == "hello world");
 		}
 	}
 	enum testDownloadURL = URL("http://misc.herringway.pw/whack.gif");
-	auto a1 = get(testDownloadURL);
-	version(online) {
-		scope(exit) if (exists("whack.gif")) remove("whack.gif");
-		scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
-		scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
-		a1.saveTo("whack.gif");
-		assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
-		a1.saveTo("whack2.gif");
-	}
-	auto resp1 = post(testURL.withParams(["1": ""]), "beep1");
-	auto resp2 = post(testURL.withParams(["2": ""]), "beep2");
-	version(online) {
-		assert(resp2.content == "beep2");
-		assert(resp2.content == "beep2");
-		assert(resp1.content == "beep1");
-	}
+	auto a1 = getRequest(testDownloadURL);
+	//version(online) {
+	//	scope(exit) if (exists("whack.gif")) remove("whack.gif");
+	//	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
+	//	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
+	//	a1.saveTo("whack.gif");
+	//	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
+	//	a1.saveTo("whack2.gif");
+	//}
 	{ //Oauth: header
-		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
 		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
-		version(online) {
-			assert(req.content == "success=true", "oauth failure:"~req.content);
-			assert(req.status == HTTPStatus.OK, "OAuth failure");
+		version(online) with (req.perform()) {
+			assert(content == "success=true", "oauth failure:"~content);
+			assert(status == HTTPStatus.OK, "OAuth failure");
 		}
 	}
 	{ //Oauth: querystring
-		auto req = get(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+		auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
 		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
-		version(online) {
-			assert(req.content == "success=true", "oauth failure:"~req.content);
-			assert(req.status == HTTPStatus.OK, "OAuth failure");
+		version(online) with (req.perform()) {
+			assert(content == "success=true", "oauth failure:"~content);
+			assert(status == HTTPStatus.OK, "OAuth failure");
 		}
 	}
 	{ //Cookies
-		auto req = get(testURL.withParams(["printCookie": "testCookie"]));
+		auto req = getRequest(testURL.withParams(["printCookie": "testCookie"]));
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
-		version(online) {
-			assert(req.content == "something");
+		version(online) with (req.perform()) {
+			assert(content == "something");
 		}
 	}
 	{ //BASIC Auth
-		auto req = get(testURL);
+		auto req = getRequest(testURL);
 		req.authorizationBasic("Test", "Password");
-		version(online) {
-			assert(req.content == "Test\nPassword");
+		version(online) with (req.perform()) {
+			assert(content == "Test\nPassword");
 		}
 	}
 }
