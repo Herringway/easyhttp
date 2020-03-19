@@ -162,9 +162,11 @@ auto urlEncoded(T : string[][string])(T val) {
 auto urlEncoded(T)(T value) if (isURLEncodable!T) {
 	import requests.utils : QueryParam;
 	QueryParam[] output;
-	foreach (key, values; urlEncodeInternal!(T, true)(value))
-		foreach (value; values)
-			output ~= QueryParam(key, value);
+	foreach (key, values; urlEncodeInternal!(T, true)(value)) {
+		foreach (val; values) {
+			output ~= QueryParam(key, val);
+		}
+	}
 	return output;
 }
 ///
