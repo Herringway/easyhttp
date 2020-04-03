@@ -1,7 +1,7 @@
 {
 	"name": "easyhttp",
 	"description": "An easy-to-use HTTP client library.",
-	"copyright": "Copyright © 2014, Cameron",
+	"copyright": "Copyright © 2020, Cameron",
 	"authors": ["Cameron \"Herringway\" Ross"],
 	"dependencies": {
 		"requests": "~>1.0"
