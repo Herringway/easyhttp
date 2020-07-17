@@ -35,7 +35,6 @@ enum packageVersion = "v0.0.0";
 alias useHTTPS = bool;
 alias POSTData = string;
 alias POSTParams = string[string];
-public alias RequestType(T) = Request!T;
 
 ///Paths to search for certificates
 public string[] extraCurlCertSearchPaths = [];
@@ -150,8 +149,8 @@ shared static this() {
 		}
 }
 
-auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
-	auto result = Request!T(inURL);
+auto get(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
+	auto result = Request(inURL);
 	result.method = HTTPMethod.get;
 	result.outHeaders = headers;
 	return result;
@@ -161,7 +160,7 @@ auto get(T = string)(URL inURL, URLHeaders headers = URLHeaders.init) {
 	auto get2 = get(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
 }
 auto post(T = string, U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
-	auto result = Request!T(inURL);
+	auto result = Request(inURL);
 	result.method = HTTPMethod.post;
 	static if (is(U == ubyte[])) {
 		result.rawPOSTData = data;
@@ -190,7 +189,7 @@ enum POSTDataType {
 /++
  + An HTTP Request.
  +/
-struct Request(ContentType) {
+struct Request {
 	import requests.utils : QueryParam;
 	private struct Hash {
 		Nullable!string hash;
@@ -243,7 +242,7 @@ struct Request(ContentType) {
 			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
 		}
 	}
-	private this(URL initial) nothrow {
+	private this(URL initial) @safe pure nothrow {
 		debug(verbosehttp) verbose = true;
 		if ("User-Agent" !in outHeaders) {
 			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
@@ -267,7 +266,7 @@ struct Request(ContentType) {
 	/++
 	 + The default filename for the file being requested.
 	 +/
-	string filename() nothrow const pure {
+	string filename() nothrow const pure @safe {
 		if (!overriddenFilename.isNull) {
 			return overriddenFilename.get;
 		}
@@ -350,10 +349,11 @@ struct Request(ContentType) {
 	 +
 	 + Valid methods are OAuthMethod.header.
 	 +/
-	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) {
+	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) @safe pure {
 		bearerToken = token;
-		if (method == OAuthMethod.header)
+		if (method == OAuthMethod.header) {
 			addHeader("Authorization", "Bearer "~token);
+		}
 	}
 	void oauth(Hash = SHA1)(OAuthMethod oauthMethod, in string consumerToken, in string consumerSecret, in string token, in string tokenSecret) @safe {
 		static if (is(Hash == SHA1))
@@ -481,12 +481,7 @@ struct Request(ContentType) {
 	 }
 	 private T contentInternal(T = string)() const {
 		static if (is(T == string)) {
-			static if (!is(ContentType == string)) {
-				string data;
-				transcode(cast(ContentType)_content, data);
-				return data;
-			} else
-				return _content.assumeUTF;
+			return _content.assumeUTF;
 		} else
 			return _content.to!T;
 	 }
