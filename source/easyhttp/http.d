@@ -7,7 +7,7 @@ import std.array;
 import std.base64;
 import std.conv;
 import std.datetime;
-import std.digest.digest;
+import std.digest;
 import std.digest.hmac;
 import std.digest.md;
 import std.digest.sha;
@@ -255,7 +255,7 @@ struct Request {
 	/++
 	 + Whether or not this request should fail upon receiving an empty body.
 	 +/
-	ref bool guaranteedData() @safe pure nothrow @nogc {
+	ref bool guaranteedData() return @safe pure nothrow @nogc {
 		return checkNoContent;
 	}
 	/++
@@ -271,7 +271,7 @@ struct Request {
 	 +
 	 + Valid methods are OAuthMethod.header.
 	 +/
-	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) {
+	void oAuthBearer(in string token, OAuthMethod method = OAuthMethod.header) @safe {
 		bearerToken = token;
 		if (method == OAuthMethod.header) {
 			addHeader("Authorization", "Bearer "~token);
@@ -329,7 +329,7 @@ struct Request {
 	 +
 	 + Null if no size is known.
 	 +/
-	ref Nullable!size_t expectedSize() @safe nothrow pure @nogc {
+	ref Nullable!size_t expectedSize() return @safe nothrow pure @nogc {
 		return sizeExpected;
 	}
 	alias Hash(T) = Nullable!(char[2*digestLength!T]);
@@ -341,7 +341,7 @@ struct Request {
 	/++
 	 + Whether or not to ignore errors in the server's SSL certificate.
 	 +/
-	ref bool ignoreHostCertificate() @nogc @safe pure nothrow {
+	ref bool ignoreHostCertificate() return @nogc @safe pure nothrow {
 		return ignoreHostCert;
 	}
 	/++
@@ -371,14 +371,14 @@ struct Request {
 			req.cookie = reqCookies;
 			return req;
 		}
-		auto getResponse(requests.Request req) {
+		auto getResponse(ref requests.Request req) {
 			final switch(method) {
 				case HTTPMethod.post:
 					final switch (postDataType) {
 						case POSTDataType.none:
 							return req.post(url.text, string[string].init);
 						case POSTDataType.form:
-							return req.post(url.text, formPOSTData);
+							return req.post(url.text, formPOSTData.dup);
 						case POSTDataType.raw:
 							return req.post(url.text, rawPOSTData, contentType);
 					}
@@ -390,7 +390,6 @@ struct Request {
 		}
 		Response response;
 		auto req = constructReq();
-		debug(verbosehttp) writeln(req.tupleof);
 		auto requestsResponse = getResponse(req);
 		response._content = requestsResponse.responseBody.data;
 		response.statusCode = requestsResponse.code.to!HTTPStatus;
@@ -433,14 +432,54 @@ struct Request {
 		}
 		return response;
 	}
-}
 	/++
-	 + Information about a file saved with the saveTo function.
+	 + Saves the body of this request to a local path.
+	 +
+	 + Will not overwrite existing files unless overwrite is set.
+	 +
+	 + Params:
+	 +  fullPath = default destination for the file to be saved
+	 +  overwrite = whether or not to overwrite existing files
 	 +/
-	//struct SavedFileInformation {
-	//	///Path that was used for actually saving the file.
-	//	string path;
-	//}
+	SavedFileInformation saveTo(string fullPath, bool overwrite = true) const {
+		SavedFileInformation output;
+		auto response = perform();
+		if (!overwrite) {
+			while (exists(fullPath)) {
+				fullPath = duplicateName(fullPath);
+			}
+		}
+		output.path = fullPath;
+		if (!exists(fullPath.dirName())) {
+			mkdirRecurse(fullPath.dirName());
+		}
+		fullPath = fullPath.fixPath();
+		auto writeFile = File(fullPath, "wb");
+
+		scope(exit) {
+			if (writeFile.isOpen) {
+				writeFile.flush();
+				writeFile.close();
+			}
+		}
+		writeFile.rawWrite(response._content);
+		output.response = response;
+		return output;
+	}
+	/// ditto
+	SavedFileInformation saveTo(string path, string filename, bool overwrite = true) const {
+		return saveTo(buildPath(path, filename), overwrite);
+	}
+}
+/++
+ + Information about a file saved with the saveTo function.
+ +/
+struct SavedFileInformation {
+	///Path that was used for actually saving the file.
+	string path;
+	///Response received from server
+	Response response;
+}
 
 struct Response {
 	private const(ubyte)[] _content;
@@ -505,40 +544,6 @@ struct Response {
 			return _content.to!T;
 		}
 	 }
-	/++
-	 + Saves the body of this request to a local path.
-	 +
-	 + Will not overwrite existing files unless overwrite is set.
-	 +
-	 + Params:
-	 +  dest = default destination for the file to be saved
-	 +  overwrite = whether or not to overwrite existing files
-	 +  clearAfterComplete = whether or not to clear the buffer after success
-	 +/
-	//SavedFileInformation saveTo(string dest, bool overwrite = true, bool clearAfterComplete = false) {
-	//	auto output = SavedFileInformation();
-	//	if (!overwrite) {
-	//		while (exists(dest)) {
-	//			dest = duplicateName(dest);
-	//		}
-	//	}
-	//	output.path = dest;
-	//	if (!exists(dest.dirName())) {
-	//		mkdirRecurse(dest.dirName());
-	//	}
-	//	dest = dest.fixPath();
-	//	auto writeFile = File(dest, "wb");
-
-	//	scope(exit) {
-	//		if (writeFile.isOpen) {
-	//			writeFile.flush();
-	//			writeFile.close();
-	//		}
-	//	}
-	//	writeFile.rawWrite(_content);
-	//	return output;
-	//}
-
 }
 /++
  + A parsed content-disposition string
@@ -730,12 +735,8 @@ class HTTPException : Exception {
 	}
 	{
 		auto req = postRequest(testURLHTTPS, ["testparam": "hello"]);
-		import std.stdio;
-		debug writeln(req);
 		req.guaranteedData = true;
 		version(online) with (req.perform()) {
-			import std.stdio;
-			writeln("'", content, "'");
 			assert(content == "test param received");
 		}
 	}
@@ -761,15 +762,12 @@ class HTTPException : Exception {
 		}
 	}
 	version(online) {
-		assertThrown(getRequest(testURL.withParams(["403":""])).perform());
 		with(getRequest(testURL.withParams(["403":""])).perform()) {
 			assert(status == HTTPStatus.Forbidden);
 		}
-		assertThrown(getRequest(testURL.withParams(["404":""])).perform());
 		with(getRequest(testURL.withParams(["404":""])).perform()) {
 			assert(status == HTTPStatus.NotFound);
 		}
-		assertThrown(getRequest(testURL.withParams(["500":""])).perform());
 		with(getRequest(testURL.withParams(["500":""])).perform()) {
 			assert(status == HTTPStatus.InternalServerError);
 		}
@@ -780,8 +778,9 @@ class HTTPException : Exception {
 	{
 		auto req = getRequest(testURL.withParams(["saveas":"example"]));
 		version(online) {
-			req.perform();
-			assert(req.filename == "example", "content-disposition failure");
+			with(req.perform()) {
+				assert(overriddenFilename.get() == "example", "content-disposition failure");
+			}
 		}
 	}
 	{
@@ -793,30 +792,29 @@ class HTTPException : Exception {
 	}
 	enum testDownloadURL = URL("http://misc.herringway.pw/whack.gif");
 	auto a1 = getRequest(testDownloadURL);
-	//version(online) {
-	//	scope(exit) if (exists("whack.gif")) remove("whack.gif");
-	//	scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
-	//	scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
-	//	a1.saveTo("whack.gif");
-	//	assert(a1.saveTo("whack.gif", false).path == "whack(2).gif", "failure to rename file to avoid overwriting");
-	//	a1.saveTo("whack2.gif");
+	version(online) {
+		scope(exit) if (exists("whack.gif")) remove("whack.gif");
+		scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
+		scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
+		a1.saveTo(".", "whack.gif");
+		a1.saveTo(".", "whack2.gif");
+	}
+	//{ //Oauth: header
+	//	auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+	//	req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
+	//	version(online) with (req.perform()) {
+	//		assert(content == "success=true", "oauth failure:"~content);
+	//		assert(status == HTTPStatus.OK, "OAuth failure");
+	//	}
 	//}
-	{ //Oauth: header
-		auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
-		version(online) with (req.perform()) {
-			assert(content == "success=true", "oauth failure:"~content);
-			assert(status == HTTPStatus.OK, "OAuth failure");
-		}
-	}
-	{ //Oauth: querystring
-		auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
-		version(online) with (req.perform()) {
-			assert(content == "success=true", "oauth failure:"~content);
-			assert(status == HTTPStatus.OK, "OAuth failure");
-		}
-	}
+	//{ //Oauth: querystring
+	//	auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
+	//	req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
+	//	version(online) with (req.perform()) {
+	//		assert(content == "success=true", "oauth failure:"~content);
+	//		assert(status == HTTPStatus.OK, "OAuth failure");
+	//	}
+	//}
 	{ //Cookies
 		auto req = getRequest(testURL.withParams(["printCookie": "testCookie"]));
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
