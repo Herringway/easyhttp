@@ -799,6 +799,8 @@ class HTTPException : Exception {
 		a1.saveTo(".", "whack.gif");
 		a1.saveTo(".", "whack2.gif");
 	}
+
+	//Note: term.ie no longer exists?
 	//{ //Oauth: header
 	//	auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
 	//	req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
