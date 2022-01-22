@@ -178,7 +178,7 @@ struct Request {
 	///Maximum time to wait for the request to complete
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
-	Nullable!URL url;
+	URL url;
 	package HTTPMethod method;
 	private URLHeaders outHeaders;
 	private Nullable!OAuthParams oAuthParams;
@@ -198,9 +198,7 @@ struct Request {
 
 	//private Nullable!string outFile;
 	invariant() {
-		if (!url.isNull) {
-			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
-		}
+		assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
 	}
 	this(URL initial) @safe pure nothrow {
 		if ("User-Agent" !in outHeaders) {
@@ -212,7 +210,7 @@ struct Request {
 	 + The default filename for the file being requested.
 	 +/
 	string filename() @safe nothrow const pure {
-		return url.get.fileName;
+		return url.fileName;
 	}
 	/++
 	 + Whether or not this request should fail upon receiving an empty body.
@@ -247,7 +245,7 @@ struct Request {
 		else static assert(0, "Unknown hash");
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
 		URLParameters params;
-		auto copy_url = URL(url.get.protocol, url.get.hostname, url.get.path, url.get.params);
+		auto copy_url = URL(url.protocol, url.hostname, url.path, url.params);
 		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.get.consumerToken];
 		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.get.token];
 		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text];
@@ -272,14 +270,13 @@ struct Request {
 			addHeader("Authorization", "OAuth " ~ authString.join(", "));
 		}
 		if (oauthMethod == OAuthMethod.queryString) {
-			enforce(!url.isNull, "can't add oauth params to nonexistant URL");
-			url.get.params["oauth_version"] = ["1.0"];
-			url.get.params["oauth_signature"] = params["oauth_signature"];
-			url.get.params["oauth_signature_method"] = params["oauth_signature_method"];
-			url.get.params["oauth_nonce"] = params["oauth_nonce"];
-			url.get.params["oauth_timestamp"] = params["oauth_timestamp"];
-			url.get.params["oauth_consumer_key"] = params["oauth_consumer_key"];
-			url.get.params["oauth_token"] = params["oauth_token"];
+			url.params["oauth_version"] = ["1.0"];
+			url.params["oauth_signature"] = params["oauth_signature"];
+			url.params["oauth_signature_method"] = params["oauth_signature_method"];
+			url.params["oauth_nonce"] = params["oauth_nonce"];
+			url.params["oauth_timestamp"] = params["oauth_timestamp"];
+			url.params["oauth_consumer_key"] = params["oauth_consumer_key"];
+			url.params["oauth_token"] = params["oauth_token"];
 		}
 	}
 
@@ -321,9 +318,7 @@ struct Request {
 	/++
 	 + Performs the request.
 	 +/
-	auto perform() const
-	in(!url.isNull, "Missing URL")
-	{
+	auto perform() const {
 		import requests;
 		auto constructReq() {
 			auto req = requests.Request();
