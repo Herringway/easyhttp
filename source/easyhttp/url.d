@@ -378,6 +378,10 @@ struct URL {
 	assert(URL("http://url.example/?hello=world#fragment").params == ["hello":["world"]], "URIArguments: Simple test with fragment failure");
 }
 @safe pure unittest {
+	assert(URL("http://url.example/?hello=1;hello2=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1"], "hello2":["2"]], "URIArguments (semicolons): key failure");
+	assert(URL("http://url.example/?hello=1;hello=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1", "2"]], "URIArguments (semicolons): Duplicate key failure");
+}
+@safe pure unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
 @safe pure unittest {
