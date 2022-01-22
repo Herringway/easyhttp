@@ -294,7 +294,7 @@ struct Request {
 		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
 		string signature = [encodeComponentSafe(oAuthParams.get.consumerSecret), encodeComponentSafe(oAuthParams.get.tokenSecret)].join("&");
 		auto signer = HMAC!Hash(signature.representation);
-		auto baseString = only(encodeComponentSafe(method.text.toUpper()), encodeComponentSafe(copy_url.toString(false)), encodeComponentSafe(copy_url.paramString)).map!representation.joiner("&".representation);
+		auto baseString = only(encodeComponentSafe(method.text.toUpper()), encodeComponentSafe(copy_url.format!"%n"), encodeComponentSafe(copy_url.paramString)).map!representation.joiner("&".representation);
 
 		put(signer, baseString);
 
