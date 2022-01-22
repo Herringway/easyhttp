@@ -801,22 +801,22 @@ class HTTPException : Exception {
 	}
 
 	//Note: term.ie no longer exists?
-	//{ //Oauth: header
-	//	auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-	//	req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
-	//	version(online) with (req.perform()) {
-	//		assert(content == "success=true", "oauth failure:"~content);
-	//		assert(status == HTTPStatus.OK, "OAuth failure");
-	//	}
-	//}
-	//{ //Oauth: querystring
-	//	auto req = getRequest(URL("http://term.ie/oauth/example/echo_api.php?success=true"));
-	//	req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
-	//	version(online) with (req.perform()) {
-	//		assert(content == "success=true", "oauth failure:"~content);
-	//		assert(status == HTTPStatus.OK, "OAuth failure");
-	//	}
-	//}
+	{ //Oauth: header
+		auto req = getRequest(URL("https://misc.herringway.pw/.test/oauth/examples/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
+		version(online) with (req.perform()) {
+			assert(content == "success=true", "oauth failure:"~content);
+			assert(status == HTTPStatus.OK, "OAuth failure");
+		}
+	}
+	{ //Oauth: querystring
+		auto req = getRequest(URL("https://misc.herringway.pw/.test/oauth/examples/echo_api.php?success=true"));
+		req.oauth(OAuthMethod.queryString, "key", "secret", "accesskey", "accesssecret");
+		version(online) with (req.perform()) {
+			assert(content == "success=true", "oauth failure:"~content);
+			assert(status == HTTPStatus.OK, "OAuth failure");
+		}
+	}
 	{ //Cookies
 		auto req = getRequest(testURL.withParams(["printCookie": "testCookie"]));
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
