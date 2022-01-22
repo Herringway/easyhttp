@@ -111,8 +111,9 @@ struct URL {
 		this(str);
 		foreach (key, values; urlEncodeInternal(inParams)) {
 			this.params[decodeComponentSafe(key)] = [];
-			foreach (value; values)
+			foreach (value; values) {
 				this.params[decodeComponentSafe(key)] ~= decodeComponentSafe(value);
+			}
 		}
 	}
 	///ditto
@@ -123,10 +124,11 @@ struct URL {
 		if (splitComponents.length > 0) {
 			this.hostname = getHostname(str, this.protocol);
 			//Get Path
-			if (this.protocol.among(Proto.Unknown, Proto.None))
+			if (this.protocol.among(Proto.Unknown, Proto.None)) {
 				this.path = splitComponents.join("/");
-			else
+			} else {
 				this.path = splitComponents.drop(3).join("/");
+			}
 			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
 				foreach (arg; existingParameters[1..$].byCodeUnit.splitter!(x => x == (semicolonQueryParameters ? ';' : '&'))) {
@@ -155,8 +157,9 @@ struct URL {
 	 + The filename for the URL, with nothing else.
 	 +/
 	string fileName() nothrow const pure @safe {
-		if (path.split("/").length == 0)
+		if (path.split("/").length == 0) {
 			return "";
+		}
 		return path.split("/")[$-1];
 	}
 	/++
@@ -178,10 +181,11 @@ struct URL {
 		try {
 			foreach (parameter, value; params)
 				foreach (subvalue; value) {
-					if (subvalue == "")
+					if (subvalue == "") {
 						parameterPrintable ~= parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B");
-					else
+					} else {
 						parameterPrintable ~= format("%s=%s", parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"), subvalue.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"));
+					}
 				}
 		} catch (Exception e) {
 			return "";
@@ -203,20 +207,27 @@ struct URL {
 		immutable HostnameCopyB = urlB.hostname;
 		immutable PathCopyB = urlB.path;
 		const ParamsCopyB = urlB.params;
-		if (urlB == const(URL).init)
+		if (urlB == const(URL).init) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if (this == urlB)
+		}
+		if (this == urlB) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if ((urlB.protocol == Proto.HTTP) || (urlB.protocol == Proto.HTTPS))
+		}
+		if ((urlB.protocol == Proto.HTTP) || (urlB.protocol == Proto.HTTPS)) {
 			return URL(ProtoCopyB, HostnameCopyB, PathCopyB, ParamsCopyB);
-		if ((urlB.protocol == Proto.None) && (urlB.path == "."))
+		}
+		if ((urlB.protocol == Proto.None) && (urlB.path == ".")) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if ((urlB.protocol == Proto.None) && (urlB.path == ".."))
+		}
+		if ((urlB.protocol == Proto.None) && (urlB.path == "..")) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy.split("/")[0..$-1].join("/"), ParamsCopy);
-		if (urlB.protocol == Proto.None)
+		}
+		if (urlB.protocol == Proto.None) {
 			return URL(ProtoCopy, HostnameCopy, PathCopyB, ParamsCopyB);
-		if (urlB.protocol == Proto.Same)
+		}
+		if (urlB.protocol == Proto.Same) {
 			return URL(ProtoCopy, urlB.hostname, PathCopyB, ParamsCopyB);
+		}
 		return URL(ProtoCopy, HostnameCopy, PathCopy ~ "/" ~ urlB.path, ParamsCopy);
 	}
 	///ditto
@@ -237,21 +248,24 @@ struct URL {
 	 +/
 	string toString(bool includeParameters) const @safe pure {
 		string output;
-		if (protocol == Proto.HTTPS)
+		if (protocol == Proto.HTTPS) {
 			output ~= "https://" ~ hostname;
-		else if (protocol == Proto.HTTP)
+		} else if (protocol == Proto.HTTP) {
 			output ~= "http://" ~ hostname;
-		else if ((protocol == Proto.None) && (hostname != hostname.init))
+		} else if ((protocol == Proto.None) && (hostname != hostname.init)) {
 			throw new Exception("Invalid URL State");
-		else if (protocol == Proto.Same)
+		} else if (protocol == Proto.Same) {
 			output ~= "//" ~ hostname;
-		if ((output.length > 0) && (output[$-1] != '/') && (path != path.init) && (path[0] != '/'))
+		}
+		if ((output.length > 0) && (output[$-1] != '/') && (path != path.init) && (path[0] != '/')) {
 			output ~= "/";
+		}
 		output ~= path;
 		if (includeParameters) {
 			if (paramString() != "") {
-				if (path == path.init)
+				if (path == path.init) {
 					output ~= "/";
+				}
 				output ~= "?"~paramString();
 			}
 		}
@@ -270,8 +284,9 @@ struct URL {
 
 		sink(hostname);
 
-		if ((hostname.length > 0) && !hostname.endsWith('/') && (path != path.init) && (path[0] != '/'))
+		if ((hostname.length > 0) && !hostname.endsWith('/') && (path != path.init) && (path[0] != '/')) {
 			sink("/");
+		}
 
 		sink(path);
 
