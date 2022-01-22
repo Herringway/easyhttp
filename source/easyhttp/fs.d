@@ -24,7 +24,7 @@ FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
 } out(result) {
 	import std.path : isValidPath;
 	assert(result.isValidPath(), "Invalid path from fixPath("~inPath~")");
-} body {
+} do {
 	FileSystemPath UNCize(FileSystemPath input) pure @safe {
 		import std.path : absolutePath, buildNormalizedPath;
 		FileSystemPath dest = input;

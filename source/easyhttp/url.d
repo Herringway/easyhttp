@@ -88,6 +88,8 @@ struct URL {
 	string hostname;
 	///Address for some resource on the server
 	string path;
+	///URL fragment - typically refers to a sub-resource
+	string fragment;
 	/++
 	 + Constructor that allows for parameters to be constructed from any
 	 + encodable struct. Order is not guaranteed to be preserved.
@@ -111,22 +113,27 @@ struct URL {
 		this(str);
 		foreach (key, values; urlEncodeInternal(inParams)) {
 			this.params[decodeComponentSafe(key)] = [];
-			foreach (value; values)
+			foreach (value; values) {
 				this.params[decodeComponentSafe(key)] ~= decodeComponentSafe(value);
+			}
 		}
 	}
 	///ditto
 	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
 		import std.utf : byCodeUnit;
 		this.protocol = str.urlProtocol;
+		auto fragSplit = findSplit(str, "#");
+		str = fragSplit[0];
+		this.fragment = fragSplit[2];
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
 			this.hostname = getHostname(str, this.protocol);
 			//Get Path
-			if (this.protocol.among(Proto.Unknown, Proto.None))
+			if (this.protocol.among(Proto.Unknown, Proto.None)) {
 				this.path = splitComponents.join("/");
-			else
+			} else {
 				this.path = splitComponents.drop(3).join("/");
+			}
 			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
 				foreach (arg; existingParameters[1..$].byCodeUnit.splitter!(x => x == (semicolonQueryParameters ? ';' : '&'))) {
@@ -155,8 +162,9 @@ struct URL {
 	 + The filename for the URL, with nothing else.
 	 +/
 	string fileName() nothrow const pure @safe {
-		if (path.split("/").length == 0)
+		if (path.split("/").length == 0) {
 			return "";
+		}
 		return path.split("/")[$-1];
 	}
 	/++
@@ -178,10 +186,11 @@ struct URL {
 		try {
 			foreach (parameter, value; params)
 				foreach (subvalue; value) {
-					if (subvalue == "")
+					if (subvalue == "") {
 						parameterPrintable ~= parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B");
-					else
+					} else {
 						parameterPrintable ~= format("%s=%s", parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"), subvalue.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"));
+					}
 				}
 		} catch (Exception e) {
 			return "";
@@ -203,20 +212,27 @@ struct URL {
 		immutable HostnameCopyB = urlB.hostname;
 		immutable PathCopyB = urlB.path;
 		const ParamsCopyB = urlB.params;
-		if (urlB == const(URL).init)
+		if (urlB == const(URL).init) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if (this == urlB)
+		}
+		if (this == urlB) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if ((urlB.protocol == Proto.HTTP) || (urlB.protocol == Proto.HTTPS))
+		}
+		if ((urlB.protocol == Proto.HTTP) || (urlB.protocol == Proto.HTTPS)) {
 			return URL(ProtoCopyB, HostnameCopyB, PathCopyB, ParamsCopyB);
-		if ((urlB.protocol == Proto.None) && (urlB.path == "."))
+		}
+		if ((urlB.protocol == Proto.None) && (urlB.path == ".")) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		if ((urlB.protocol == Proto.None) && (urlB.path == ".."))
+		}
+		if ((urlB.protocol == Proto.None) && (urlB.path == "..")) {
 			return URL(ProtoCopy, HostnameCopy, PathCopy.split("/")[0..$-1].join("/"), ParamsCopy);
-		if (urlB.protocol == Proto.None)
+		}
+		if (urlB.protocol == Proto.None) {
 			return URL(ProtoCopy, HostnameCopy, PathCopyB, ParamsCopyB);
-		if (urlB.protocol == Proto.Same)
+		}
+		if (urlB.protocol == Proto.Same) {
 			return URL(ProtoCopy, urlB.hostname, PathCopyB, ParamsCopyB);
+		}
 		return URL(ProtoCopy, HostnameCopy, PathCopy ~ "/" ~ urlB.path, ParamsCopy);
 	}
 	///ditto
@@ -232,46 +248,27 @@ struct URL {
 		import std.format : format;
 		return absoluteURL(URL(format!fmt(fmtParams)));
 	}
-	/++
-	 + Returns URL as a string.
-	 +/
-	string toString(bool includeParameters) const @safe pure {
-		string output;
-		if (protocol == Proto.HTTPS)
-			output ~= "https://" ~ hostname;
-		else if (protocol == Proto.HTTP)
-			output ~= "http://" ~ hostname;
-		else if ((protocol == Proto.None) && (hostname != hostname.init))
-			throw new Exception("Invalid URL State");
-		else if (protocol == Proto.Same)
-			output ~= "//" ~ hostname;
-		if ((output.length > 0) && (output[$-1] != '/') && (path != path.init) && (path[0] != '/'))
-			output ~= "/";
-		output ~= path;
-		if (includeParameters) {
-			if (paramString() != "") {
-				if (path == path.init)
-					output ~= "/";
-				output ~= "?"~paramString();
-			}
-		}
-		return output;
-	}
 	void toString(T)(T sink, FormatSpec!char fmt = FormatSpec!char.init) const if (isOutputRange!(T, char[])) {
+		bool printSlash;
 		if (protocol == Proto.HTTPS) {
 			sink("https://");
+			sink(hostname);
+			printSlash = true;
 		} else if (protocol == Proto.HTTP) {
 			sink("http://");
+			sink(hostname);
+			printSlash = true;
 		} else if ((protocol == Proto.None) && (hostname != hostname.init)) {
 			throw new Exception("Invalid URL State");
 		} else if (protocol == Proto.Same) {
 			sink("//");
+			sink(hostname);
+			printSlash = true;
 		}
 
-		sink(hostname);
-
-		if ((hostname.length > 0) && !hostname.endsWith('/') && (path != path.init) && (path[0] != '/'))
+		if (printSlash && !hostname.endsWith('/') && (path != path.init) && (path[0] != '/')) {
 			sink("/");
+		}
 
 		sink(path);
 
@@ -287,10 +284,10 @@ struct URL {
 			case 'n': break;
 			default: assert(0, "Invalid format spec");
 		}
-	}
-	///ditto
-	string toString() const @safe pure {
-		return toString(true);
+		if (fragment != null) {
+			sink("#");
+			sink(fragment);
+		}
 	}
 }
 @safe pure unittest {
@@ -298,23 +295,25 @@ struct URL {
 	const b = URL(URL.Proto.HTTP, "localhost", "/");
 }
 @safe pure unittest {
-	assert(URL("http://url.example/?a=b").toString() == "http://url.example/?a=b", "Simple complete URL failure");
-	assert(URL("https://url.example/?a=b").toString() == "https://url.example/?a=b", "Simple complete URL (https) failure");
-	assert(URL("http://url.example").toString() == "http://url.example", "Simple complete URL (no ending slash) failure");
-	assert(URL("something").toString() == "something", "Path-only relative URL recreation failure");
-	assert(URL("/something").toString() == "/something", "Path-only absolute URL recreation failure");
-	assert(URL("/something?a=b:d").toString() == "/something?a=b%3Ad");
-	assert(URL("http://url.example/?a=b&&").toString() == "http://url.example/?a=b");
-	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).toString() == "http://url.example/?a=b");
+	assert(URL("http://url.example/?a=b#hello").text() == "http://url.example/?a=b#hello", "Simple complete URL failure");
+	assert(URL("http://url.example/#hello").text() == "http://url.example#hello", "Simple URL with fragment failure");
+	assert(URL("http://url.example#hello").text() == "http://url.example#hello", "Simple URL with fragment, no trailing / on hostname failure");
+	assert(URL("https://url.example/?a=b").text() == "https://url.example/?a=b", "Simple complete URL (https) failure");
+	assert(URL("http://url.example").text() == "http://url.example", "Simple complete URL (no ending slash) failure");
+	assert(URL("something").text() == "something", "Path-only relative URL recreation failure");
+	assert(URL("/something").text() == "/something", "Path-only absolute URL recreation failure");
+	assert(URL("/something?a=b:d").text() == "/something?a=b%3Ad");
+	assert(URL("http://url.example/?a=b&&").text() == "http://url.example/?a=b");
+	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).text() == "http://url.example/?a=b");
 }
 @safe pure unittest {
 	struct Test {
 		string a;
 	}
-	assert(URL("http://url.example/", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
-	assert(URL("http://url.example/", ["a":["b"]]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
-	assert(URL("http://url.example/", Test("b")).toString() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
-	assert(URL("http://url.example/?a=c", ["a":"b"]).toString() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
+	assert(URL("http://url.example/", ["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
+	assert(URL("http://url.example/", ["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
+	assert(URL("http://url.example/", Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
+	assert(URL("http://url.example/?a=c", ["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
@@ -339,24 +338,24 @@ struct URL {
 	assert(URL("/something?a=b:d").hostname == "");
 }
 @safe pure unittest {
-	assert(URL("http://url.example").absoluteURL("https://url.example").toString() == "https://url.example", "Switching protocol (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).toString() == "https://url.example", "Switching protocol (struct) failure");
-	assert(URL("http://url.example").absoluteURL("http://url.example").toString() == "http://url.example", "Identical URL (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("http://url.example")).toString() == "http://url.example", "Identical URL (struct) failure");
-	assert(URL("http://url.example").absoluteURL("/something").toString() == "http://url.example/something", "Root-relative URL (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("/something")).toString() == "http://url.example/something", "Root-relative URL (struct) failure");
-	assert(URL("http://url.example").absoluteURL("//different.example").toString() == "http://different.example", "Same-protocol relative URL (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("//different.example")).toString() == "http://different.example", "Same-protocol relative URL (struct) failure");
-	assert(URL("http://url.example/dir").absoluteURL(".").toString() == "http://url.example/dir", "Dot URL (string) failure");
-	assert(URL("http://url.example/dir").absoluteURL(URL(".")).toString() == "http://url.example/dir", "Dot URL (struct) failure");
-	assert(URL("http://url.example/dir").absoluteURL("..").toString() == "http://url.example", "Relative parent URL (string) failure");
-	assert(URL("http://url.example/dir").absoluteURL(URL("..")).toString() == "http://url.example", "Relative parent URL (struct) failure");
-	assert(URL("http://url.example/dir").absoluteURL("/different").toString() == "http://url.example/different", "Root-relative (w/dir) URL (string) failure");
-	assert(URL("http://url.example/dir").absoluteURL(URL("/different")).toString() == "http://url.example/different", "Root-relative (w/dir) URL (struct) failure");
-	assert(URL("http://url.example/dir").absoluteURL("different").toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
-	assert(URL("http://url.example/dir").absoluteURL(URL("different")).toString() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
-	assert(URL("http://url.example").absoluteURL!"/%s"("test").toString() == "http://url.example/test");
-	assert(URL("http://url.example").absoluteURL!"/%s"(5).toString() == "http://url.example/5");
+	assert(URL("http://url.example").absoluteURL("https://url.example").text() == "https://url.example", "Switching protocol (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).text() == "https://url.example", "Switching protocol (struct) failure");
+	assert(URL("http://url.example").absoluteURL("http://url.example").text() == "http://url.example", "Identical URL (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("http://url.example")).text() == "http://url.example", "Identical URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL("/something").text() == "http://url.example/something", "Root-relative URL (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("/something")).text() == "http://url.example/something", "Root-relative URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL("//different.example").text() == "http://different.example", "Same-protocol relative URL (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("//different.example")).text() == "http://different.example", "Same-protocol relative URL (struct) failure");
+	assert(URL("http://url.example/dir").absoluteURL(".").text() == "http://url.example/dir", "Dot URL (string) failure");
+	assert(URL("http://url.example/dir").absoluteURL(URL(".")).text() == "http://url.example/dir", "Dot URL (struct) failure");
+	assert(URL("http://url.example/dir").absoluteURL("..").text() == "http://url.example", "Relative parent URL (string) failure");
+	assert(URL("http://url.example/dir").absoluteURL(URL("..")).text() == "http://url.example", "Relative parent URL (struct) failure");
+	assert(URL("http://url.example/dir").absoluteURL("/different").text() == "http://url.example/different", "Root-relative (w/dir) URL (string) failure");
+	assert(URL("http://url.example/dir").absoluteURL(URL("/different")).text() == "http://url.example/different", "Root-relative (w/dir) URL (struct) failure");
+	assert(URL("http://url.example/dir").absoluteURL("different").text() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
+	assert(URL("http://url.example/dir").absoluteURL(URL("different")).text() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL!"/%s"("test").text() == "http://url.example/test");
+	assert(URL("http://url.example").absoluteURL!"/%s"(5).text() == "http://url.example/5");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
@@ -376,6 +375,11 @@ struct URL {
 	assert(url.text == "http://url.example/?hello=%2B");
 	assert(format!"%n"(URL("http://url.example/?hello")) == "http://url.example");
 	assert(format!"%s"(URL("http://url.example/?hello")) == "http://url.example/?hello");
+	assert(URL("http://url.example/?hello=world#fragment").params == ["hello":["world"]], "URIArguments: Simple test with fragment failure");
+}
+@safe pure unittest {
+	assert(URL("http://url.example/?hello=1;hello2=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1"], "hello2":["2"]], "URIArguments (semicolons): key failure");
+	assert(URL("http://url.example/?hello=1;hello=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1", "2"]], "URIArguments (semicolons): Duplicate key failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
