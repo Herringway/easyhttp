@@ -157,44 +157,6 @@ shared static this() {
 		}
 }
 
-auto getRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
-	auto result = Request(inURL);
-	result.method = HTTPMethod.get;
-	result.outHeaders = headers;
-	return result;
-}
-@safe pure nothrow unittest {
-	auto get1 = getRequest(URL(URL.Proto.HTTPS, "localhost"));
-	auto get2 = getRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
-}
-auto get(URL inURL, URLHeaders headers = URLHeaders.init) {
-	return getRequest(inURL, headers).perform();
-}
-auto postRequest(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
-	auto result = Request(inURL);
-	result.method = HTTPMethod.post;
-	static if (is(U == ubyte[])) {
-		result.rawPOSTData = data;
-		result.postDataType = POSTDataType.raw;
-	} else static if (is(U == string)) {
-		result.rawPOSTData = data.representation.dup;
-		result.postDataType = POSTDataType.raw;
-	} else static if (isURLEncodable!U) {
-		result.formPOSTData = urlEncode(data);
-		result.postDataType = POSTDataType.form;
-	}
-	result.outHeaders = headers;
-	return result;
-}
-@safe pure unittest {
-	auto post1 = postRequest(URL(URL.Proto.HTTPS, "localhost"), "");
-	auto post2 = postRequest(URL(URL.Proto.HTTPS, "localhost"), "", ["":""]);
-	auto post3 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
-	auto post4 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
-}
-auto post(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
-	return postRequest(inURL, data, headers).perform();
-}
 enum POSTDataType {
 	none,
 	raw,
@@ -204,7 +166,6 @@ enum POSTDataType {
  + An HTTP Request.
  +/
 struct Request {
-	import requests.utils : QueryParam;
 	private struct OAuthParams {
 		string consumerToken;
 		string consumerSecret;
@@ -232,7 +193,7 @@ struct Request {
 	string contentType = "application/octet-stream";
 	Cookie[] cookies;
 	private POSTDataType postDataType;
-	private QueryParam[] formPOSTData;
+	private QueryParameter[] formPOSTData;
 	private immutable(ubyte)[] rawPOSTData;
 
 	//private Nullable!string outFile;
@@ -241,7 +202,7 @@ struct Request {
 			assert(!url.get.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.get.text~"\"");
 		}
 	}
-	private this(URL initial) @safe pure nothrow {
+	this(URL initial) @safe pure nothrow {
 		if ("User-Agent" !in outHeaders) {
 			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
 		}
@@ -345,6 +306,18 @@ struct Request {
 	ref bool ignoreHostCertificate() return @nogc @safe pure nothrow {
 		return ignoreHostCert;
 	}
+
+	void setPOSTData(immutable ubyte[] data) @safe @nogc pure nothrow {
+		this.rawPOSTData = data;
+		this.postDataType = POSTDataType.raw;
+	}
+	void setPOSTData(string data) @safe pure nothrow {
+		setPOSTData(data.representation);
+	}
+	void setPOSTData(T)(T data) @safe pure if (isURLEncodable!T) {
+		this.formPOSTData = urlEncode(data);
+		this.postDataType = POSTDataType.form;
+	}
 	/++
 	 + Performs the request.
 	 +/
@@ -379,7 +352,11 @@ struct Request {
 						case POSTDataType.none:
 							return req.post(url.text, string[string].init);
 						case POSTDataType.form:
-							return req.post(url.text, formPOSTData.dup);
+							QueryParam[] params;
+							foreach (param; formPOSTData) {
+								params ~= QueryParam(param.key, param.value);
+							}
+							return req.post(url.text, params);
 						case POSTDataType.raw:
 							return req.post(url.text, rawPOSTData, contentType);
 					}
@@ -574,12 +551,6 @@ auto parseDispositionString(string str) @safe {
 	assert(parseDispositionString(`attachment; filename="example.txt"`).filename == "example.txt");
 }
 /++
- + A useless HTTP request for testing
- +/
-auto nullRequest() @safe {
-	return getRequest(URL(URL.Proto.HTTP, "localhost", "/"));
-}
-/++
  + Exception thrown when an unexpected status is encountered.
  +/
 class StatusException : HTTPException {
@@ -634,12 +605,9 @@ class HTTPException : Exception {
 		super(msg, file, line);
 	}
 }
-//Test to ensure initial construction is safe, pure, and nothrow
-@safe pure nothrow unittest {
-	getRequest(URL(URL.Proto.HTTP, "localhost", "/"));
-}
 //will be @safe once requests supports it
 @system unittest {
+	import easyhttp.simple : getRequest, postRequest;
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
 	import std.stdio : writeln, writefln;

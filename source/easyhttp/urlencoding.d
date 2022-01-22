@@ -109,101 +109,124 @@ struct URLParameters {
  +  value = The structure to encode
  +/
 auto urlEncode(T)(T value) if (isURLEncodable!T) {
-	import requests.utils : QueryParam;
-	QueryParam[] output;
+	import easyhttp.url : QueryParameter;
+	QueryParameter[] output;
 	foreach (key, values; urlEncodeInternal!(T, false)(value)) {
 		foreach (val; values) {
-			output ~= QueryParam(key, val);
+			output ~= QueryParameter(key, val);
 		}
 	}
 	return output;
 }
 ///
 @safe pure unittest {
-	import requests.utils : QueryParam;
+	import easyhttp.url : QueryParameter;
 	struct Beep {
 		string a;
 		uint b;
 		uint[] c;
 	}
 	{
-		auto result = sort(urlEncode(Beep("treeee&", 3, [1,2,5])));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		auto result = urlEncode(Beep("treeee&", 3, [1,2,5]));
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 	{
-		auto result = sort(urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		auto result = urlEncode(["a":"treeee&", "b": "3", "c":"1,2,5"]);
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 	{
 		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = sort(urlEncode(constTest));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		auto result = urlEncode(constTest);
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 	{
 		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = sort(urlEncode(immutableTest));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		auto result = urlEncode(immutableTest);
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 	{
 		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = sort(urlEncode(constTest));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
+		auto result = urlEncode(constTest);
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 	{
 		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = sort(urlEncode(immutableTest));
-		assert(result.array == [QueryParam("a", "treeee&"),QueryParam("b", "3"),QueryParam("c", "1,2,5")]);
-		//assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncode(immutableTest);
+		assert(result.canFind(QueryParameter("a", "treeee&")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1,2,5")));
 	}
 }
 auto urlEncoded(T : string[][string])(T val) {
 	return urlEncoded(URLParameters(val));
 }
 auto urlEncoded(T)(T value) if (isURLEncodable!T) {
-	import requests.utils : QueryParam;
-	QueryParam[] output;
+	import easyhttp.url : QueryParameter;
+	QueryParameter[] output;
 	foreach (key, values; urlEncodeInternal!(T, true)(value)) {
 		foreach (val; values) {
-			output ~= QueryParam(key, val);
+			output ~= QueryParameter(key, val);
 		}
 	}
 	return output;
 }
 ///
 @safe pure unittest {
-	import requests.utils : QueryParam;
+	import easyhttp.url : QueryParameter;
 	struct Beep {
 		string a;
 		uint b;
 		uint[] c;
 	}
 	{
-		auto result = sort(urlEncoded(Beep("treeee&", 3, [1,2,5])));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(Beep("treeee&", 3, [1,2,5]));
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 	{
-		auto result = sort(urlEncoded(["a":"treeee&", "b": "3", "c":"1,2,5"]));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(["a":"treeee&", "b": "3", "c":"1,2,5"]);
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 	{
 		const(string)[string] constTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = sort(urlEncoded(constTest));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(constTest);
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 	{
 		immutable(string)[string] immutableTest = ["a":"treeee&", "b": "3", "c":"1,2,5"];
-		auto result = sort(urlEncoded(immutableTest));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(immutableTest);
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 	{
 		const(string)[][string] constTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = sort(urlEncoded(constTest));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(constTest);
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 	{
 		immutable(string)[][string] immutableTest = ["a":["treeee&"], "b": ["3"], "c":["1,2,5"]];
-		auto result = sort(urlEncoded(immutableTest));
-		assert(result.array == [QueryParam("a", "treeee%26"),QueryParam("b", "3"),QueryParam("c", "1%2C2%2C5")]);
+		auto result = urlEncoded(immutableTest);
+		assert(result.canFind(QueryParameter("a", "treeee%26")));
+		assert(result.canFind(QueryParameter("b", "3")));
+		assert(result.canFind(QueryParameter("c", "1%2C2%2C5")));
 	}
 }
 package string encodeComponentSafe(string input) @safe pure {

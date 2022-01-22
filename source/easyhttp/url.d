@@ -15,6 +15,14 @@ import std.uri;
 import easyhttp.urlencoding;
 
 /++
+ + A key/value pair, found after the ? in a URL.
+ +/
+struct QueryParameter {
+	string key;
+	string value;
+}
+
+/++
  + Determines the protocol for the given URL.
  +
  + Supports HTTP, HTTPS, FTP, and URLs beginning with //.
