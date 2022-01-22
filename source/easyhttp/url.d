@@ -88,6 +88,8 @@ struct URL {
 	string hostname;
 	///Address for some resource on the server
 	string path;
+	///URL fragment - typically refers to a sub-resource
+	string fragment;
 	/++
 	 + Constructor that allows for parameters to be constructed from any
 	 + encodable struct. Order is not guaranteed to be preserved.
@@ -120,6 +122,9 @@ struct URL {
 	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
 		import std.utf : byCodeUnit;
 		this.protocol = str.urlProtocol;
+		auto fragSplit = findSplit(str, "#");
+		str = fragSplit[0];
+		this.fragment = fragSplit[2];
 		auto splitComponents = str.split("/");
 		if (splitComponents.length > 0) {
 			this.hostname = getHostname(str, this.protocol);
@@ -279,6 +284,10 @@ struct URL {
 			case 'n': break;
 			default: assert(0, "Invalid format spec");
 		}
+		if (fragment != null) {
+			sink("#");
+			sink(fragment);
+		}
 	}
 }
 @safe pure unittest {
@@ -286,7 +295,9 @@ struct URL {
 	const b = URL(URL.Proto.HTTP, "localhost", "/");
 }
 @safe pure unittest {
-	assert(URL("http://url.example/?a=b").text() == "http://url.example/?a=b", "Simple complete URL failure");
+	assert(URL("http://url.example/?a=b#hello").text() == "http://url.example/?a=b#hello", "Simple complete URL failure");
+	assert(URL("http://url.example/#hello").text() == "http://url.example#hello", "Simple URL with fragment failure");
+	assert(URL("http://url.example#hello").text() == "http://url.example#hello", "Simple URL with fragment, no trailing / on hostname failure");
 	assert(URL("https://url.example/?a=b").text() == "https://url.example/?a=b", "Simple complete URL (https) failure");
 	assert(URL("http://url.example").text() == "http://url.example", "Simple complete URL (no ending slash) failure");
 	assert(URL("something").text() == "something", "Path-only relative URL recreation failure");
@@ -364,6 +375,7 @@ struct URL {
 	assert(url.text == "http://url.example/?hello=%2B");
 	assert(format!"%n"(URL("http://url.example/?hello")) == "http://url.example");
 	assert(format!"%s"(URL("http://url.example/?hello")) == "http://url.example/?hello");
+	assert(URL("http://url.example/?hello=world#fragment").params == ["hello":["world"]], "URIArguments: Simple test with fragment failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
