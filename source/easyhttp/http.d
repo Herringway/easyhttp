@@ -611,9 +611,9 @@ class HashException : HTTPException {
 	 +  file = The file where the error occurred
      +  line = The line where the error occurred
 	 +/
-	this(const(char)[] hashType, const(char)[] badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure in {
-		assert(goodHash != badHash, "Good hash and mismatched hash match!");
-	} body {
+	this(const(char)[] hashType, const(char)[] badHash, string goodHash, string file = __FILE__, size_t line = __LINE__) @safe pure
+		in(goodHash != badHash, "Good hash and mismatched hash match!")
+	{
 		super(format("Hash mismatch (%s): %s != %s", hashType, badHash, goodHash), file, line);
 	}
 }
