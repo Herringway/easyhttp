@@ -83,6 +83,10 @@ struct URLParameters {
 	auto remove(const string key) {
 		params.remove(key);
 	}
+	immutable(URLParameters) idup() const @trusted pure {
+		const(string[])[string] paramsCopy = params.dup;
+		return immutable URLParameters(assumeUnique(paramsCopy));
+	}
 }
 @safe pure unittest {
 	{

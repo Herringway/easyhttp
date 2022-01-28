@@ -145,6 +145,12 @@ struct Cookie {
 	string key;
 	string value;
 }
+
+struct HTTPHeader {
+	string key;
+	string value;
+}
+
 immutable Nullable!(string, "") systemCertPath;
 shared static this() {
 	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
@@ -180,7 +186,7 @@ struct Request {
 	///The URL being requested
 	URL url;
 	package HTTPMethod method;
-	private URLHeaders outHeaders;
+	private immutable(HTTPHeader)[] outHeaders;
 	private Nullable!OAuthParams oAuthParams;
 	///Certificate root store
 	Nullable!string certPath;
@@ -198,12 +204,13 @@ struct Request {
 
 	//private Nullable!string outFile;
 	invariant() {
-		assert(!url.protocol.among(URL.Proto.Unknown, URL.Proto.None, URL.Proto.Same), "No protocol specified in URL \""~url.text~"\"");
+		assert(url.protocol.among(URL.Proto.HTTP, URL.Proto.HTTPS), "Invalid protocol specified in URL \""~url.text~"\"");
+	}
+	private this(immutable typeof(this.tupleof) fields) immutable @safe pure nothrow {
+		this.tupleof = fields;
 	}
 	this(URL initial) @safe pure nothrow {
-		if ("User-Agent" !in outHeaders) {
-			outHeaders["User-Agent"] = packageName ~ " " ~ packageVersion;
-		}
+		outHeaders ~= HTTPHeader("User-Agent", packageName ~ " " ~ packageVersion);
 		url = initial;
 	}
 	/++
@@ -224,7 +231,7 @@ struct Request {
 	 + No effect on completed requests.
 	 +/
 	void addHeader(string key, string val) @safe pure nothrow {
-		outHeaders[key] = val;
+		outHeaders ~= HTTPHeader(key, val);
 	}
 	/++
 	 + Adds an OAuth bearer token to the request.
@@ -330,7 +337,11 @@ struct Request {
 				enforce(certPath.get.exists, "Certificate path not found");
 				req.sslSetCaCert(certPath.get);
 			}
-			req.addHeaders(outHeaders);
+			string[string] headers;
+			foreach (header; outHeaders) {
+				headers[header.key] = header.value;
+			}
+			req.addHeaders(headers);
 			req.sslSetVerifyPeer(peerVerification);
 			RefCounted!Cookies reqCookies;
 			foreach (cookie; cookies) {
@@ -364,23 +375,28 @@ struct Request {
 		Response response;
 		auto req = constructReq();
 		auto requestsResponse = getResponse(req);
-		response._content = requestsResponse.responseBody.data;
+		response._content = requestsResponse.responseBody.data.idup;
 		response.statusCode = requestsResponse.code.to!HTTPStatus;
-		response._headers = requestsResponse.responseHeaders;
-		foreach (cookie; req.cookie) {
-			response.outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
-		}
-		if ("content-disposition" in response._headers) {
-			immutable disposition = parseDispositionString(response._headers["content-disposition"]);
-			if (!disposition.filename.isNull) {
-				response.overriddenFilename = disposition.filename;
+		foreach (key, value; requestsResponse.responseHeaders) {
+			response.headers ~= HTTPHeader(key, value);
+			switch (key) {
+				case "content-disposition":
+					immutable disposition = parseDispositionString(value);
+					if (!disposition.filename.isNull) {
+						response.overriddenFilename = disposition.filename.get;
+					}
+					break;
+				case "content-md5":
+					enforce(response.md5 == toHexString(Base64.decode(value)), new HashException("MD5", response.md5, toHexString(Base64.decode(value))));
+					break;
+				case "content-length":
+					enforce(requestsResponse.contentLength == value.to!size_t, new HTTPException("Content length mismatched"));
+					break;
+				default: break;
 			}
 		}
-		if ("content-md5" in response._headers) {
-			enforce(response.md5 == toHexString(Base64.decode(response._headers["content-md5"])), new HashException("MD5", response.md5, toHexString(Base64.decode(response._headers["content-md5"]))));
-		}
-		if ("content-length" in response._headers) {
-			enforce(requestsResponse.contentLength == response._headers["content-length"].to!size_t, new HTTPException("Content length mismatched"));
+		foreach (cookie; req.cookie) {
+			response.outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
 		}
 		if (!expectedMD5.isNull) {
 			enforce(icmp(expectedMD5.get, response.md5) == 0, new HashException("MD5", expectedMD5.get, response.md5));
@@ -443,6 +459,32 @@ struct Request {
 	SavedFileInformation saveTo(string path, string filename, bool overwrite = true) const {
 		return saveTo(buildPath(path, filename), overwrite);
 	}
+	auto finalized() const {
+		return immutable Request(
+			bearerToken,
+			sizeExpected,
+			checkNoContent,
+			timeout,
+			url.idup,
+			method,
+			outHeaders,
+			oAuthParams,
+			certPath,
+			ignoreHostCert,
+			peerVerification,
+			verbose,
+			contentType,
+			cookies.idup,
+			postDataType,
+			formPOSTData.idup,
+			rawPOSTData,
+			expectedMD5,
+			expectedSHA1,
+			expectedSHA256,
+			expectedSHA384,
+			expectedSHA512,
+		);
+	}
 }
 /++
  + Information about a file saved with the saveTo function.
@@ -455,13 +497,13 @@ struct SavedFileInformation {
 }
 
 struct Response {
-	private const(ubyte)[] _content;
+	private immutable(ubyte)[] _content;
 	///The HTTP status code last seen
 	HTTPStatus statusCode;
-	private URLHeaders _headers;
-	private Cookie[] outCookies;
+	immutable(HTTPHeader)[] headers;
+	immutable(Cookie)[] outCookies;
 	///Change filename for saved files
-	Nullable!string overriddenFilename;
+	string overriddenFilename;
 	alias md5 = hash!MD5;
 	alias sha1 = hash!SHA1;
 	alias sha256 = hash!SHA256;
@@ -491,25 +533,22 @@ struct Response {
 		return statusCode;
 	}
 	/++
-	 + Returns headers of response.
-	 +
-	 + Performs the request if not already done.
+	 + Finds matching headers
 	 +/
-	const(URLHeaders) headers() @safe {
-		return _headers;
-	}
+	 auto matchingHeaders(string key) {
+		return headers.filter!(x => x.key == key)();
+	 }
 	/++
 	 + Returns body of response as a string.
 	 +/
 	T content(T = string)() {
 		return contentInternal!T;
 	}
-	/++
-	 +
-	 +/
+	///ditto
 	 T content(T = string)() const {
 		return contentInternal!T;
 	 }
+
 	 private T contentInternal(T = string)() const {
 		static if (is(T == string)) {
 			return _content.assumeUTF;
@@ -749,7 +788,7 @@ class HTTPException : Exception {
 	}
 	{
 		auto req = getRequest(testURL.withParams(["PRINTHEADER": ""]));
-		req.outHeaders["echo"] = "hello world";
+		req.addHeader("echo", "hello world");
 		version(online) with (req.perform()) {
 			assert(content == "hello world");
 		}

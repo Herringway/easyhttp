@@ -98,6 +98,13 @@ struct URL {
 	string path;
 	///URL fragment - typically refers to a sub-resource
 	string fragment;
+	private this(Proto inProtocol, string inHostname, string inPath, immutable URLParameters inParams, string inFragment) immutable pure @safe {
+		this.params = inParams.idup;
+		this.protocol = inProtocol;
+		this.hostname = inHostname;
+		this.path = inPath;
+		this.fragment = inFragment;
+	}
 	/++
 	 + Constructor that allows for parameters to be constructed from any
 	 + encodable struct. Order is not guaranteed to be preserved.
@@ -296,6 +303,9 @@ struct URL {
 			sink("#");
 			sink(fragment);
 		}
+	}
+	immutable(URL) idup() @safe pure const {
+		return immutable URL(protocol, hostname, path, params.idup, fragment);
 	}
 }
 @safe pure unittest {
