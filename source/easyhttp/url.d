@@ -37,6 +37,8 @@ URL.Proto urlProtocol(in string url) pure @safe nothrow {
 		return URL.Proto.HTTPS;
 	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("ftp:")))
 		return URL.Proto.FTP;
+	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("data:")))
+		return URL.Proto.Data;
 	else if (url.startsWith("//"))
 		return URL.Proto.Same;
 	else if (url.startsWith("/"))
@@ -52,6 +54,7 @@ URL.Proto urlProtocol(in string url) pure @safe nothrow {
 	assert("http://example".urlProtocol == URL.Proto.HTTP);
 	assert("https://example".urlProtocol == URL.Proto.HTTPS);
 	assert("ftp://example".urlProtocol == URL.Proto.FTP);
+	assert("data:,example".urlProtocol == URL.Proto.Data);
 	assert("HTTP://example".urlProtocol == URL.Proto.HTTP);
 	assert("HTTPS://example".urlProtocol == URL.Proto.HTTPS);
 	assert("FTP://example".urlProtocol == URL.Proto.FTP);
@@ -87,7 +90,7 @@ string getHostname(in string url, in URL.Proto protocol) pure @safe nothrow {
  + A Uniform Resource Locator.
  +/
 struct URL {
-	enum Proto { Unknown, HTTP, HTTPS, FTP, Same, None }
+	enum Proto { Unknown, HTTP, HTTPS, FTP, Data, Same, None }
 	///Parameters
 	URLParameters params;
 	///Protocol, such as HTTP or FTP
