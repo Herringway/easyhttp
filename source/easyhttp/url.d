@@ -198,7 +198,7 @@ struct URL {
 	/++
 	 + Transforms the parameters for this URL to a URL-encoded string.
 	 +/
-	string paramString() nothrow const @trusted pure {
+	string paramString() nothrow const @safe pure {
 		if (params.empty) return "";
 		string[] parameterPrintable;
 		try {
@@ -321,6 +321,7 @@ struct URL {
 	assert(URL("http://url.example#hello").text() == "http://url.example#hello", "Simple URL with fragment, no trailing / on hostname failure");
 	assert(URL("https://url.example/?a=b").text() == "https://url.example/?a=b", "Simple complete URL (https) failure");
 	assert(URL("http://url.example").text() == "http://url.example", "Simple complete URL (no ending slash) failure");
+	assert(URL("http:/url.example").text() == "http://url.example", "Simple complete URL (no double protocol slash) failure");
 	assert(URL("something").text() == "something", "Path-only relative URL recreation failure");
 	assert(URL("/something").text() == "/something", "Path-only absolute URL recreation failure");
 	assert(URL("/something?a=b:d").text() == "/something?a=b%3Ad");
@@ -349,6 +350,7 @@ struct URL {
 @safe pure unittest {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
 	assert(URL("https://url.example").hostname == "url.example", "HTTPS hostname detection failure");
+	assert(URL("http:/url.example").hostname == "url.example", "HTTP hostname (missing double slash) detection failure");
 	assert(URL("url.example").hostname == "url.example", "No-protocol hostname detection failure");
 	assert(URL("http://url.example/dir").hostname == "url.example", "HTTP hostname detection failure");
 	assert(URL("HTTP://URL.EXAMPLE").hostname == "url.example", "HTTP caps hostname detection failure");

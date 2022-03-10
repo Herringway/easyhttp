@@ -168,6 +168,14 @@ enum POSTDataType {
 	raw,
 	form
 }
+
+///Action to take when saving a file that already exists
+enum FileExistsAction {
+	skip,
+	overwrite,
+	rename
+}
+
 /++
  + An HTTP Request.
  +/
@@ -181,6 +189,7 @@ struct Request {
 	private string bearerToken;
 	private Nullable!size_t sizeExpected;
 	private bool checkNoContent = false;
+	bool ignoreSizeMismatch = true;
 	///Maximum time to wait for the request to complete
 	Duration timeout = dur!"minutes"(5);
 	///The URL being requested
@@ -287,7 +296,7 @@ struct Request {
 		}
 	}
 
-	void authorizationBasic(string user, string pass) {
+	void authorizationBasic(string user, string pass) @safe {
 		addHeader("Authorization", "Basic "~Base64.encode((user~":"~pass).representation).idup);
 	}
 	/++
@@ -325,79 +334,93 @@ struct Request {
 	/++
 	 + Performs the request.
 	 +/
-	auto perform() const {
-		import requests;
-		auto constructReq() {
-			auto req = requests.Request();
-			req.verbosity = verbose ? reqsVerboseLevel : 0;
-			if (!systemCertPath.isNull) {
-				req.sslSetCaCert(systemCertPath);
-			}
-			if (!certPath.isNull) {
-				enforce(certPath.get.exists, "Certificate path not found");
-				req.sslSetCaCert(certPath.get);
-			}
-			string[string] headers;
-			foreach (header; outHeaders) {
-				headers[header.key] = header.value;
-			}
-			req.addHeaders(headers);
-			req.sslSetVerifyPeer(peerVerification);
-			RefCounted!Cookies reqCookies;
-			foreach (cookie; cookies) {
-				alias ReqCookie = requests.Cookie;
-				reqCookies ~= ReqCookie(cookie.path, cookie.domain, cookie.key, cookie.value);
-			}
-			req.cookie = reqCookies;
-			return req;
-		}
-		auto getResponse(ref requests.Request req) {
-			final switch(method) {
-				case HTTPMethod.post:
-					final switch (postDataType) {
-						case POSTDataType.none:
-							return req.post(url.text, string[string].init);
-						case POSTDataType.form:
-							QueryParam[] params;
-							foreach (param; formPOSTData) {
-								params ~= QueryParam(param.key, param.value);
-							}
-							return req.post(url.text, params);
-						case POSTDataType.raw:
-							return req.post(url.text, rawPOSTData, contentType);
-					}
-				case HTTPMethod.get:
-					return req.get(url.text);
-				case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
-					assert(0, "Unimplemented");
-			}
-		}
+	auto perform() const @safe {
+		import vibe.http.client;
+		import vibe.utils.dictionarylist;
+		import vibe.stream.operations;
+		import vibe.stream.tls;
 		Response response;
-		auto req = constructReq();
-		auto requestsResponse = getResponse(req);
-		response._content = requestsResponse.responseBody.data.idup;
-		response.statusCode = requestsResponse.code.to!HTTPStatus;
-		foreach (key, value; requestsResponse.responseHeaders) {
-			response.headers ~= HTTPHeader(key, value);
-			switch (key) {
-				case "content-disposition":
-					immutable disposition = parseDispositionString(value);
-					if (!disposition.filename.isNull) {
-						response.overriddenFilename = disposition.filename.get;
+		auto settings = new HTTPClientSettings;
+		if (!certPath.isNull) {
+			enforce(certPath.get.exists, "Certificate path not found");
+		}
+		TLSPeerValidationMode* validation = new TLSPeerValidationMode((peerVerification ? TLSPeerValidationMode.checkTrust : 0) | (ignoreHostCert ? 0 : TLSPeerValidationMode.validCert));
+		settings.tlsContextSetup = (scope TLSContext context) @safe {
+			try {
+				if (!systemCertPath.isNull) {
+					context.useTrustedCertificateFile(systemCertPath.get);
+				}
+				context.peerValidationMode = *validation;
+			} catch (Exception) {}
+		};
+		string tmpURL = url.text;
+		foreach (i; 0 .. 10) {
+			requestHTTP(tmpURL,
+				(scope HTTPClientRequest req) {
+					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
+					final switch (method) {
+						case HTTPMethod.post:
+							req.method = VibeHTTPMethod.POST;
+							final switch (postDataType) {
+								case POSTDataType.none:
+									break;
+								case POSTDataType.form:
+									DictionaryList!string form;
+									foreach (param; formPOSTData) {
+										form[param.key] = param.value;
+									}
+									req.writeFormBody(form.byKeyValue);
+									break;
+								case POSTDataType.raw:
+									req.writeBody(rawPOSTData, contentType);
+									break;
+							}
+							break;
+						case HTTPMethod.get:
+							req.method = VibeHTTPMethod.GET;
+							break;
+						case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
+							assert(0, "Unimplemented");
 					}
-					break;
-				case "content-md5":
-					enforce(response.md5 == toHexString(Base64.decode(value)), new HashException("MD5", response.md5, toHexString(Base64.decode(value))));
-					break;
-				case "content-length":
-					enforce(requestsResponse.contentLength == value.to!size_t, new HTTPException("Content length mismatched"));
-					break;
-				default: break;
+					foreach (header; outHeaders) {
+						req.headers[header.key] = header.value;
+					}
+					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
+				},
+				(scope HTTPClientResponse res) {
+					response._content = assumeUnique(res.bodyReader.readAll());
+					response.statusCode = cast(HTTPStatus)res.statusCode;
+					foreach (key, value; res.headers.byKeyValue) {
+						response.headers ~= HTTPHeader(key, value);
+						switch (key.toLower) {
+							case "content-disposition":
+								immutable disposition = parseDispositionString(value);
+								if (!disposition.filename.isNull) {
+									response.overriddenFilename = disposition.filename.get;
+								}
+								break;
+							case "content-md5":
+								enforce(response.md5 == toHexString(Base64.decode(value)), new HashException("MD5", response.md5, toHexString(Base64.decode(value))));
+								break;
+							case "content-length":
+								enforce(ignoreSizeMismatch || (response._content.length == value.to!size_t), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, value.to!size_t)));
+								break;
+							case "location":
+								tmpURL = value;
+								break;
+							default: break;
+						}
+					}
+					foreach (key, cookie; res.cookies.byKeyValue) {
+						response.outCookies ~= Cookie(cookie.domain, cookie.path, key, cookie.value);
+					}
+				},
+			settings);
+			if (!response.statusCode.among(HTTPStatus.MovedPermanently, HTTPStatus.Found, HTTPStatus.SeeOther, HTTPStatus.TemporaryRedirect)) {
+				break;
 			}
 		}
-		foreach (cookie; req.cookie) {
-			response.outCookies ~= Cookie(cookie.domain, cookie.path, cookie.attr, cookie.value);
-		}
+		enforce(response.statusCode != 0, new HTTPException("No status code received"));
 		if (!expectedMD5.isNull) {
 			enforce(icmp(expectedMD5.get, response.md5) == 0, new HashException("MD5", expectedMD5.get, response.md5));
 		}
@@ -430,19 +453,28 @@ struct Request {
 	 +  fullPath = default destination for the file to be saved
 	 +  overwrite = whether or not to overwrite existing files
 	 +/
-	SavedFileInformation saveTo(string fullPath, bool overwrite = true) const {
+	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename) const @safe {
 		SavedFileInformation output;
 		auto response = perform();
-		if (!overwrite) {
-			while (exists(fullPath)) {
-				fullPath = duplicateName(fullPath);
+		output.response = response;
+		if (fullPath.exists) {
+			final switch (fileExistsAction) {
+				case FileExistsAction.rename:
+					while (fullPath.exists) {
+						fullPath = fullPath.duplicateName;
+					}
+					break;
+				case FileExistsAction.skip:
+					return output;
+				case FileExistsAction.overwrite:
+					output.overwritten = true;
+					break;
 			}
 		}
 		output.path = fullPath;
-		if (!exists(fullPath.dirName())) {
+		if (!fullPath.dirName.exists) {
 			mkdirRecurse(fullPath.dirName());
 		}
-		fullPath = fullPath.fixPath();
 		auto writeFile = File(fullPath, "wb");
 
 		scope(exit) {
@@ -451,19 +483,15 @@ struct Request {
 				writeFile.close();
 			}
 		}
-		writeFile.rawWrite(response._content);
-		output.response = response;
+		writeFile.trustedRawWrite(response._content);
 		return output;
-	}
-	/// ditto
-	SavedFileInformation saveTo(string path, string filename, bool overwrite = true) const {
-		return saveTo(buildPath(path, filename), overwrite);
 	}
 	auto finalized() const {
 		return immutable Request(
 			bearerToken,
 			sizeExpected,
 			checkNoContent,
+			ignoreSizeMismatch,
 			timeout,
 			url.idup,
 			method,
@@ -494,6 +522,8 @@ struct SavedFileInformation {
 	string path;
 	///Response received from server
 	Response response;
+	///Whether or not the file was overwritten
+	bool overwritten;
 }
 
 struct Response {
@@ -639,8 +669,7 @@ class HTTPException : Exception {
 		super(msg, file, line);
 	}
 }
-//will be @safe once requests supports it
-@system unittest {
+@safe unittest {
 	import easyhttp.simple : getRequest, postRequest;
 	import std.exception : assertNotThrown, assertThrown;
 	import std.file : remove, exists;
@@ -663,16 +692,15 @@ class HTTPException : Exception {
 		}
 	}
 	{
-		auto req = getRequest(URL("https://expired.badssl.com"));
+		auto req = getRequest(URL("https://self-signed.badssl.com/"));
 		version(online) {
-			assertThrown(req.perform(), "HTTPS on expired cert succeeded");
+			assertThrown(req.perform(), "HTTPS on untrusted cert succeeded");
 		}
 	}
 	{
 		auto req = getRequest(URL("https://expired.badssl.com"));
-		req.peerVerification = false;
-		version(online) with (req.perform()) {
-			assert(status == 200);
+		version(online) {
+			assertThrown(req.perform(), "HTTPS on expired cert succeeded");
 		}
 	}
 	{
@@ -782,7 +810,7 @@ class HTTPException : Exception {
 		auto req = getRequest(testURL.withParams(["saveas":"example"]));
 		version(online) {
 			with(req.perform()) {
-				assert(overriddenFilename.get() == "example", "content-disposition failure");
+				assert(overriddenFilename == "example", "content-disposition failure");
 			}
 		}
 	}
