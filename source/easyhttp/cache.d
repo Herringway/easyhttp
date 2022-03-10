@@ -15,10 +15,10 @@ struct DownloadCache {
 	string basePath;
 	uint retries = 1;
 
-	T get(T)(URL url, bool refresh = false) const {
+	T get(T)(URL url) const {
 		return get!T(getRequest(url));
 	}
-	T get(T)(const Request req, bool refresh = false) const {
+	T get(T)(const Request req) const {
 		T convert(immutable(ubyte)[] data) @safe {
 			static if (__traits(compiles, cast(T)data)) {
 				return cast(T)data;
@@ -51,7 +51,7 @@ struct DownloadCache {
 			assert(0);
 		}
 	}
-	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
+	immutable(ubyte)[] get(const Request req) const @safe {
 		return get!(immutable(ubyte)[])(req);
 	}
 
