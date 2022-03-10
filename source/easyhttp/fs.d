@@ -1,10 +1,19 @@
 module easyhttp.fs;
 
+import std.stdio : File;
 
-version(Windows) private enum maxPath = 260;
-version(Posix) private enum maxPath = 255;
+version(Windows) {
+	private enum maxPath = 32767;
+	private enum softMaxPath = 260;
+} else version(Posix) {
+	private enum maxPath = 255;
+}
 
-alias FileSystemPath = string;
+enum InvalidCharHandling {
+	replaceUnicode,
+	remove
+}
+
 /++
  + Fixes up invalid paths.
  +
@@ -19,52 +28,70 @@ alias FileSystemPath = string;
  + Params:
  +  inPath = path that may contain errors
  +/
-FileSystemPath fixPath(in FileSystemPath inPath) nothrow in {
-	assert(inPath != "", "No path");
-} out(result) {
-	import std.path : isValidPath;
-	assert(result.isValidPath(), "Invalid path from fixPath("~inPath~")");
-} do {
-	FileSystemPath UNCize(FileSystemPath input) pure @safe {
-		import std.path : absolutePath, buildNormalizedPath;
-		FileSystemPath dest = input;
-		version(Windows) {
-			dest = dest.absolutePath().buildNormalizedPath();
-			if ((dest.length < 4) || (dest[0..4] != `\\?\`))
-				dest = `\\?\` ~ dest;
-		}
-		return dest;
-	}
-	import std.algorithm : among, filter, min;
+auto fixPath(in string inPath, InvalidCharHandling invalidCharHandling = InvalidCharHandling.remove) @safe
+	in(inPath != "", "No path")
+{
+	import std.algorithm.iteration : map;
+	import std.algorithm.searching : skipOver;
 	import std.array : array;
-	import std.path : absolutePath, baseName, buildNormalizedPath, dirName, extension;
-	import std.utf : byCodeUnit;
-	FileSystemPath dest = inPath;
-	try {
+	import std.exception : enforce;
+	import std.path : absolutePath, baseName, buildNormalizedPath, buildPath, chainPath, dirName, driveName, extension, isRooted, pathSplitter, stripExtension, withExtension;
+	import std.range : chain, only;
+	auto UNCize(string input) {
 		version(Windows) {
-			if ((dest.length >= 4) && (dest[0..4] == `\\?\`))
-				dest = dest[4..$];
-			dest = dest.byCodeUnit.filter!(x => !x.among!('"','?','<','>','|','*')).array;
-			if ((dest.length >= 3) && (dest[1..3] == `:\`))
-				dest = dest[0..3]~dest[3..$].byCodeUnit.filter!(x => x != ':').array;
-			else
-				dest = dest.byCodeUnit.filter!(x => x != ':').array;
+			return chain(input.length > softMaxPath ? `\\?\` : "", input);
+		} else {
+			return input;
 		}
-		if (dest[$-1] == '.')
-			dest ~= "tmp";
-		if (dest.absolutePath().length > maxPath)
-			dest = (dest.dirName() ~ "/" ~ dest.baseName()[0..min($,(maxPath-10)-(dest.absolutePath().dirName() ~ "/" ~ dest.absolutePath().extension()).length)] ~ dest.extension()).buildNormalizedPath();
-		dest = UNCize(dest);
-		return dest.idup;
-	} catch (Exception) {
-		return inPath;
+	}
+	string dest = inPath;
+	version(Windows) {
+		dest.skipOver(`\\?\`);
+	}
+	dest = buildNormalizedPath(dest.absolutePath);
+	auto origDrive = dest.driveName;
+	auto split = dest.pathSplitter;
+	split.skipOver!isRooted();
+	dest = buildPath(only(origDrive).chain(split.map!(x => fixPathComponent(x, invalidCharHandling)).array));
+	const long truncationAmount = dest.length - maxPath;
+	if (truncationAmount > 0) {
+		enforce(dest.baseName.stripExtension.length > truncationAmount, "Path too long!");
+		dest = chainPath(dest.dirName(), dest.baseName.stripExtension[0 .. $ - truncationAmount].withExtension(dest.extension)).array;
+	}
+	return UNCize(dest);
+}
+@safe unittest {
+	import std.algorithm.comparison : equal;
+	import std.path : asAbsolutePath;
+	import std.range : chain;
+	import std.utf : toUTF8;
+	assert(fixPath("yes").equal("yes".asAbsolutePath));
+	assert(fixPath("yes/../yes").equal("yes".asAbsolutePath));
+	version(Windows) {
+		assert(fixPath(longFilename).equal(`\\?\`.chain(longFilename.asAbsolutePath)));
+	}
+	assert(fixPath(longFilename).toUTF8.length <= maxPath);
+	assert(fixPath("invalid\0").equal("invalid".asAbsolutePath));
+	assert(fixPath("invalid\0", InvalidCharHandling.replaceUnicode).equal("invalid␀".asAbsolutePath));
+	assert(fixPath(`\\?\C:\windows\system32`).equal(`C:\windows\system32`));
+	version(Windows) assert(fixPath(`\\?\C:\windows`).equal(`C:\windows`));
+}
+string fixPathComponent(string input, InvalidCharHandling invalidCharHandling = InvalidCharHandling.remove) @safe pure {
+	import std.algorithm : among, filter, map, min, substitute;
+	import std.meta : aliasSeqOf;
+	import std.range : roundRobin;
+	import std.utf : toUTF8;
+	final switch (invalidCharHandling) {
+		case InvalidCharHandling.replaceUnicode:
+			return input.substitute!(aliasSeqOf!(roundRobin(invalidPathCharacters, invalidPathUnicodeReplacements))).toUTF8;
+		case InvalidCharHandling.remove:
+			return input.filter!(x => !x.among!(aliasSeqOf!invalidPathCharacters)).toUTF8;
 	}
 }
-unittest {
-	string[] pathsToTest = ["yes", "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong", "invalid&", `\\?\C:\windows\system32`];
-	foreach (path; pathsToTest)
-		fixPath(path);
-	version(Windows) assert(fixPath(`\\?\C:\windows`) == `\\?\C:\windows`);
+@safe pure unittest {
+	assert(fixPathComponent("ok") == "ok");
+	assert(fixPathComponent("invalid\0") == "invalid");
+	assert(fixPathComponent("invalid\0", InvalidCharHandling.replaceUnicode) == "invalid␀");
 }
 /++
  + Creates a monotonically-increasing filename.
@@ -75,7 +102,7 @@ unittest {
  + Params:
  +  oldFilename = original filename to add/increase duplicate count for
  +/
-string duplicateName(string oldFilename) {
+string duplicateName(string oldFilename) @safe {
 	import std.string : format;
 	import std.format : formattedRead;
 	import std.path : stripExtension, extension;
@@ -83,7 +110,7 @@ string duplicateName(string oldFilename) {
 	uint dupeid;
 	try {
 		auto noext = stripExtension(oldFilename);
-		formattedRead(noext, "%s(%s)", &dupePrefix, &dupeid);
+		formattedRead(noext, "%s(%s)", dupePrefix, dupeid);
 		dupeid++;
 	} catch(Exception) {
 		dupePrefix = stripExtension(oldFilename);
@@ -98,4 +125,27 @@ unittest {
 	assert("hello(10).txt".duplicateName == "hello(11).txt",   "Double digit duplicate filename failure");
 	assert("hello(11).txt".duplicateName == "hello(12).txt",   "Double digit 2 duplicate filename failure");
 	assert("hello(a).txt" .duplicateName == "hello(a)(2).txt", "Non-numeric duplicate filename failure");
+}
+
+version(Windows) {
+	enum invalidPathCharacters = "<>:\"|?*\0\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F";
+	enum invalidPathUnicodeReplacements = "＜＞：＂｜？＊␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟";
+} else {
+	enum invalidPathCharacters = "\0";
+	enum invalidPathUnicodeReplacements = "␀";
+}
+
+import std.utf : count;
+static assert(invalidPathCharacters.count == invalidPathUnicodeReplacements.count);
+
+private enum longFilename = "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong";
+
+package void trustedRawWrite(ref File file, const(ubyte)[] data) @trusted {
+	file.rawWrite(data);
+}
+
+package immutable(ubyte)[] trustedRead(string filename) @trusted {
+	import std.exception : assumeUnique;
+	import std.file : read;
+	return assumeUnique(cast(ubyte[])read(filename));
 }
