@@ -12,7 +12,7 @@ import std.uri;
 
 
 struct URLParameters {
-	string[][string] params;
+	private string[][string] params;
 	auto opBinaryRight(string op : "in")(string key) {
 		return key in params;
 	}
