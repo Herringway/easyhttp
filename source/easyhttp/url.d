@@ -138,7 +138,9 @@ struct URL {
 	}
 	///ditto
 	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
+		import std.algorithm.iteration : substitute;
 		import std.utf : byCodeUnit;
+		str = str.byCodeUnit.substitute!('\\', '/').array;
 		this.protocol = str.urlProtocol;
 		auto fragSplit = findSplit(str, "#");
 		str = fragSplit[0];

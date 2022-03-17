@@ -114,6 +114,7 @@ struct DownloadCache {
 	import std.algorithm.comparison : equal;
 	with (DownloadCache("tmp")) {
 		assert(getFilePath(URL("http://example.com")).equal(buildNormalizedPath("tmp/example.com/index.html").asAbsolutePath));
+		assert(getFilePath(URL(`http:\\example.com\somefile`)).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
 		assert(getFilePath(URL("http://example.com/somefile")).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
 		assert(getFilePath(URL("http://example.com/somefile.")).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
 		assert(getFilePath(URL("http://example.com/somefile.jpg")).equal(buildNormalizedPath("tmp/example.com/somefile.jpg").asAbsolutePath));
