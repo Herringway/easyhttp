@@ -310,6 +310,24 @@ struct URL {
 	immutable(URL) idup() @safe pure const {
 		return immutable URL(protocol, hostname, path, params.idup, fragment);
 	}
+	int opCmp(const URL other) @safe pure const {
+		if (auto protocolComparison = this.protocol - other.protocol) {
+			return protocolComparison;
+		}
+		if (auto hostComparison = cmp(this.hostname, other.hostname)) {
+			return hostComparison;
+		}
+		if (auto pathComparison = cmp(this.path, other.path)) {
+			return pathComparison;
+		}
+		if (auto paramsComparison = cmp(this.paramString, other.paramString)) {
+			return paramsComparison;
+		}
+		if (auto fragmentComparison = cmp(this.fragment, other.fragment)) {
+			return fragmentComparison;
+		}
+		return 0;
+	}
 }
 @safe pure unittest {
 	const a = URL(URL.Proto.HTTP, "localhost", "/", ["a": "b"]);

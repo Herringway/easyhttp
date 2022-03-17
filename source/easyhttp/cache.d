@@ -6,6 +6,7 @@ import std.file;
 import std.path;
 import std.utf;
 
+import easyhttp.downloadmanager;
 import easyhttp.fs;
 import easyhttp.http;
 import easyhttp.simple;
@@ -14,6 +15,14 @@ import easyhttp.url;
 struct DownloadCache {
 	string basePath;
 	uint retries = 1;
+	private DownloadManager downloader;
+
+	this(string path) @safe {
+		basePath = path;
+	}
+	this(DownloadManager manager) @safe {
+		downloader = manager;
+	}
 
 	T get(T)(URL url) const {
 		return get!T(getRequest(url));
@@ -53,6 +62,24 @@ struct DownloadCache {
 	}
 	immutable(ubyte)[] get(const Request req) const @safe {
 		return get!(immutable(ubyte)[])(req);
+	}
+
+	void queue(Request req) @safe {
+		string dest = getFilePath(req.url).toUTF8;
+		if (dest.exists) {
+			return;
+		}
+		DownloadRequest download;
+		download.request = req;
+		download.fileExistsAction = FileExistsAction.skip;
+		download.destPath = dest;
+		downloader.add(download);
+	}
+	void prepare() @safe pure {
+		downloader.prepare();
+	}
+	void execute() @system {
+		downloader.execute();
 	}
 
 	auto getFilePath(const URL url) const @safe {

@@ -102,6 +102,13 @@ struct DownloadManager {
 	{
 		queue ~= request;
 	}
+	void prepare() @safe pure {
+		import std.algorithm.iteration : uniq;
+		import std.algorithm.sorting : sort;
+		auto indices = iota(0, queue.length).array;
+		indices.sort!((x, y) => queue[x].request.url > queue[y].request.url)();
+		queue = indexed(queue, indices).uniq().array;
+	}
 	void execute() @system {
 		import std.range : empty, front, popFront;
 		auto downloaders = new Tid[](queueCount);
