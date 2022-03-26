@@ -1,5 +1,7 @@
 module easyhttp.urlencoding;
 
+import easyhttp.url : QueryParameter;
+
 import std.algorithm;
 import std.array;
 import std.conv;
@@ -10,39 +12,38 @@ import std.string;
 import std.traits;
 import std.uri;
 
-
 struct URLParameters {
-	private string[][string] params;
-	auto opBinaryRight(string op : "in")(string key) {
-		return key in params;
+	private QueryParameter[] params;
+	auto opIndex(string key) {
+		return params.filter!(x => x.key == key)().map!(x => x.value);
 	}
-	auto ref opIndex(string key) {
-		return params[key];
+	bool opBinaryRight(string op : "in")(string key) {
+		return params.map!(x => x.key).canFind(key);
 	}
 	auto opIndexAssign(void[], string key) {
-		return params[key] = [];
+		remove(key);
+		return [];
 	}
 	auto opIndexAssign(string val, string key) {
-		return params[key] = [val];
+		params ~= QueryParameter(key, val);
+		return val;
 	}
 	auto opIndexAssign(string[] vals, string key) {
-		return params[key] = vals;
-	}
-	auto opIndexAssign(T)(T val, string key) {
-		import std.conv : text;
-		return params[key] = [val.text];
-	}
-	void opIndexOpAssign(string op)(const string val, const string key) {
-		if (key !in params) {
-			params[key] = [];
+		foreach (val; vals) {
+			params ~= QueryParameter(key, val);
 		}
-		mixin("params[key] "~op~"= val;");
+		return vals;
 	}
-	void opIndexOpAssign(string op)(const string[] val, const string key) {
-		if (key !in params) {
-			params[key] = [];
+	void opOpAssign(string op : "~")(const QueryParameter param) {
+		params ~= param;
+	}
+	void opIndexOpAssign(string op : "~")(const string val, const string key) {
+		params ~= QueryParameter(key, val);
+	}
+	void opIndexOpAssign(string op : "~")(const string[] vals, const string key) {
+		foreach (val; vals) {
+			params ~= QueryParameter(key, val);
 		}
-		mixin("params[key] "~op~"= val;");
 	}
 	void opIndexOpAssign(string op, T)(const T val, const string key) {
 		import std.conv : to;
@@ -54,53 +55,48 @@ struct URLParameters {
 	bool empty() const pure @nogc @safe nothrow {
 		return params == null;
 	}
-	int opApply(scope int delegate(const string, const string[]) pure @safe dg) const pure @safe {
+	int opApply(scope int delegate(const string, const string) pure @safe dg) const pure @safe {
 		int result = 0;
-		foreach (k,v; params) {
-			result = dg(k,v);
+		foreach (param; params) {
+			result = dg(param.key, param.value);
 			if (result) {
 				break;
 			}
 		}
 		return result;
 	}
-	int opApply(scope int delegate(const string, ref string[]) pure @safe dg) pure @safe {
-		int result = 0;
-		foreach (k,v; params) {
-			result = dg(k,v);
-			if (result) {
-				break;
+	bool opEquals(const string[][string] array) const pure @safe {
+		size_t len;
+		foreach (k, va; array) {
+			len += va.length;
+			foreach (v; va) {
+				if (!params.canFind(QueryParameter(k, v))) {
+					return false;
+				}
 			}
 		}
-		return result;
-	}
-	auto opEquals(const string[][string] v) const {
-		return v == params;
+		return len == params.length;
 	}
 	auto opEquals(const URLParameters v) const {
 		return v.params == params;
 	}
 	auto remove(const string key) {
-		params.remove(key);
+		params = params.remove!(x => x.key == key);
 	}
-	immutable(URLParameters) idup() const @trusted pure nothrow {
-		import std.exception : assumeWontThrow;
-		const(string[])[string] paramsCopy = assumeWontThrow(params.dup);
-		return immutable URLParameters(assumeUnique(paramsCopy));
+	immutable(URLParameters) idup() const @safe pure nothrow {
+		return immutable URLParameters(params.idup);
 	}
 	URLParameters dup() const @safe pure nothrow {
-		import std.conv : to;
-		import std.exception : assumeWontThrow;
-		return URLParameters(assumeWontThrow(params.to!(typeof(URLParameters.params))));
+		return URLParameters(params.dup);
 	}
 }
 @safe pure unittest {
 	{
 		auto x = URLParameters();
-		x["a"] = 6;
-		assert(x["a"] == ["6"]);
-		x["a"] ~= 7;
-		assert(x["a"] == ["6", "7"]);
+		x["a"] = "6";
+		assert(x["a"].equal(["6"]));
+		x["a"] ~= "7";
+		assert(x["a"].equal(["6", "7"]));
 		x.remove("a");
 		assert(x.empty);
 	}
@@ -121,10 +117,8 @@ struct URLParameters {
 auto urlEncode(T)(T value) if (isURLEncodable!T) {
 	import easyhttp.url : QueryParameter;
 	QueryParameter[] output;
-	foreach (key, values; urlEncodeInternal!(T, false)(value)) {
-		foreach (val; values) {
-			output ~= QueryParameter(key, val);
-		}
+	foreach (key, val; urlEncodeInternal!(T, false)(value)) {
+		output ~= QueryParameter(key, val);
 	}
 	return output;
 }
@@ -183,10 +177,8 @@ auto urlEncoded(T : string[][string])(T val) {
 auto urlEncoded(T)(T value) if (isURLEncodable!T) {
 	import easyhttp.url : QueryParameter;
 	QueryParameter[] output;
-	foreach (key, values; urlEncodeInternal!(T, true)(value)) {
-		foreach (val; values) {
-			output ~= QueryParameter(key, val);
-		}
+	foreach (key, val; urlEncodeInternal!(T, true)(value)) {
+		output ~= QueryParameter(key, val);
 	}
 	return output;
 }
@@ -289,13 +281,11 @@ package string decodeComponentSafe(string input) @safe pure {
 }
 package URLParameters urlEncodeAssoc(bool performEncoding = true)(const URLParameters value) @safe pure {
 	URLParameters newData;
-	foreach (key, vals; value) {
-		foreach (val; vals) {
-			static if (performEncoding) {
-				newData[encodeComponentSafe(key)] ~= [encodeComponentSafe(val)];
-			} else {
-				newData[key] ~= [val];
-			}
+	foreach (key, val; value) {
+		static if (performEncoding) {
+			newData ~= QueryParameter(encodeComponentSafe(key), encodeComponentSafe(val));
+		} else {
+			newData ~= QueryParameter(key, val);
 		}
 	}
 	return newData;
@@ -324,11 +314,13 @@ package URLParameters toURLParams(const URLParameters value) @safe pure nothrow 
 	return output;
 }
 package URLParameters toURLParams(const string[][string] params) @safe pure nothrow {
-	try {
-		return URLParameters(params.to!(string[][string]));
-	} catch (Exception) {
-		return URLParameters.init;
+	URLParameters result;
+	foreach (pair; params.byKeyValue) {
+		foreach (val; pair.value) {
+			result ~= QueryParameter(pair.key, val);
+		}
 	}
+	return result;
 }
 package URLParameters urlEncodeInternal(T, bool urlEncode = true)(in T value) if (isURLEncodable!T) {
 	static if (is(T == struct))
@@ -357,10 +349,6 @@ package URLParameters toURLParams(T)(in T value) if (is(T == struct)) {
 		bool[] c;
 	}
 	assert(Something("test", 3, [true, false, true]).toURLParams == ["a": ["test"], "b": ["3"], "c": ["true,false,true"]]);
-}
-@safe pure unittest {
-	URLParameters p;
-	assert("x" !in p);
 }
 /++
  + Detect whether or not a type T is URL-encodable.

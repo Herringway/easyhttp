@@ -108,6 +108,20 @@ struct URL {
 		this.path = inPath;
 		this.fragment = inFragment;
 	}
+	package this(Proto protocol, string hostname, string path, URLParameters params, string fragment) pure @safe nothrow {
+		this.protocol = protocol;
+		this.hostname = hostname;
+		this.path = path;
+		this.params = params;
+		this.fragment = fragment;
+	}
+	package this(Proto protocol, string hostname, string path, const URLParameters params, string fragment) const pure @safe nothrow {
+		this.protocol = protocol;
+		this.hostname = hostname;
+		this.path = path;
+		this.params = params;
+		this.fragment = fragment;
+	}
 	/++
 	 + Constructor that allows for parameters to be constructed from any
 	 + encodable struct. Order is not guaranteed to be preserved.
@@ -124,19 +138,7 @@ struct URL {
 		this.hostname = inHostname;
 		this.path = inPath;
 	}
-	/++
-	 + Constructor for URL strings
-	 +/
-	this(T)(string str, T inParams) if (isURLEncodable!T) {
-		this(str);
-		foreach (key, values; urlEncodeInternal(inParams)) {
-			this.params[decodeComponentSafe(key)] = [];
-			foreach (value; values) {
-				this.params[decodeComponentSafe(key)] ~= decodeComponentSafe(value);
-			}
-		}
-	}
-	///ditto
+	/// Construct a URL from a string
 	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
 		import std.algorithm.iteration : substitute;
 		import std.utf : byCodeUnit;
@@ -188,12 +190,27 @@ struct URL {
 		return path.split("/")[$-1];
 	}
 	/++
-	 + Returns a new URL with the set of parameters specified.
+	 + Returns a new URL with the specified set of parameters, replacing existing parameters.
 	 +/
-	URL withParams(T)(T inParams) const if (isURLEncodable!T) {
+	URL withReplacedParams(T)(T inParams) const if (isURLEncodable!T) {
 		auto url = URL(protocol, hostname, path, inParams);
 		foreach (k, v; params) {
-			url.params[k] ~= v;
+			if (k !in url.params) {
+				url.params[k] ~= v;
+			}
+		}
+		return url;
+	}
+	deprecated URL withParams(T)(T inParams) const if (isURLEncodable!T) {
+		return withReplacedParams(inParams);
+	}
+	/++
+	 + Returns a new URL with the specified set of parameters added.
+	 +/
+	URL withNewParams(T)(T inParams) const if (isURLEncodable!T) {
+		auto url = URL(protocol, hostname, path, inParams);
+		foreach (k, v; params) {
+			url.params ~= QueryParameter(k, v);
 		}
 		return url;
 	}
@@ -204,14 +221,13 @@ struct URL {
 		if (params.empty) return "";
 		string[] parameterPrintable;
 		try {
-			foreach (parameter, value; params)
-				foreach (subvalue; value) {
-					if (subvalue == "") {
-						parameterPrintable ~= parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B");
-					} else {
-						parameterPrintable ~= format("%s=%s", parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"), subvalue.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"));
-					}
+			foreach (parameter, value; params) {
+				if (value == "") {
+					parameterPrintable ~= parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B");
+				} else {
+					parameterPrintable ~= format("%s=%s", parameter.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"), value.encodeComponentSafe().replace(":", "%3A").replace("+", "%2B"));
 				}
+			}
 		} catch (Exception e) {
 			return "";
 		}
@@ -355,10 +371,13 @@ struct URL {
 	struct Test {
 		string a;
 	}
-	assert(URL("http://url.example/", ["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
-	assert(URL("http://url.example/", ["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
-	assert(URL("http://url.example/", Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
-	assert(URL("http://url.example/?a=c", ["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
+	assert(URL("http://url.example/").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
+	assert(URL("http://url.example/").withReplacedParams(["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
+	assert(URL("http://url.example/").withReplacedParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
+	import std.stdio;
+	debug writeln(URL("http://url.example/?a=c").withReplacedParams(["a":"b"]));
+	assert(URL("http://url.example/?a=c").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
+	assert(URL("http://url.example/?test").withReplacedParams(["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
@@ -426,14 +445,4 @@ struct URL {
 @safe pure unittest {
 	assert(URL("http://url.example/?hello=1;hello2=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1"], "hello2":["2"]], "URIArguments (semicolons): key failure");
 	assert(URL("http://url.example/?hello=1;hello=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1", "2"]], "URIArguments (semicolons): Duplicate key failure");
-}
-@safe pure unittest {
-	assert(URL("http://url.example/?test", ["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
-}
-@safe pure unittest {
-	with(URL("http://url.example/?test", ["test2": ["value"]]).withParams(["test3": ["value"]])) {
-		assert("test" in params);
-		assert("test2" in params);
-		assert("test3" in params);
-	}
 }

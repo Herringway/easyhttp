@@ -264,33 +264,31 @@ struct Request {
 			enum hashType = "MD5";
 		else static assert(0, "Unknown hash");
 		oAuthParams = OAuthParams(consumerToken, consumerSecret, token, tokenSecret);
-		URLParameters params;
+		string[string] params;
 		auto copy_url = URL(url.protocol, url.hostname, url.path, url.params);
-		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = [oAuthParams.get.consumerToken];
-		params["oauth_token"] = copy_url.params["oauth_token"] = [oAuthParams.get.token];
-		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = [uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text];
-		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = ["HMAC-"~hashType];
-		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = [Clock.currTime().toUTC().toUnixTime().text];
-		params["oauth_version"] = copy_url.params["oauth_version"] = ["1.0"];
+		params["oauth_consumer_key"] = copy_url.params["oauth_consumer_key"] = oAuthParams.get.consumerToken;
+		params["oauth_token"] = copy_url.params["oauth_token"] = oAuthParams.get.token;
+		params["oauth_nonce"] = copy_url.params["oauth_nonce"] = uniform(uint.min, uint.max).text ~ Clock.currTime().stdTime.text;
+		params["oauth_signature_method"] = copy_url.params["oauth_signature_method"] = "HMAC-"~hashType;
+		params["oauth_timestamp"] = copy_url.params["oauth_timestamp"] = Clock.currTime().toUTC().toUnixTime().text;
+		params["oauth_version"] = copy_url.params["oauth_version"] = "1.0";
 		string signature = [encodeComponentSafe(oAuthParams.get.consumerSecret), encodeComponentSafe(oAuthParams.get.tokenSecret)].join("&");
 		auto signer = HMAC!Hash(signature.representation);
 		auto baseString = only(encodeComponentSafe(method.text.toUpper()), encodeComponentSafe(copy_url.format!"%n"), encodeComponentSafe(copy_url.paramString)).map!representation.joiner("&".representation);
 
 		put(signer, baseString);
 
-		params["oauth_signature"] = [Base64.encode(signer.finish())];
-		params["realm"] = [""];
+		params["oauth_signature"] = Base64.encode(signer.finish());
+		params["realm"] = "";
 		if (oauthMethod == OAuthMethod.header) {
 			string[] authString;
-			foreach (k, dv; params) {
-				foreach (v; dv) {
-					authString ~= format(`%s="%s"`, k, encodeComponentSafe(v).replace("+", "%2B"));
-				}
+			foreach (k, v; params) {
+				authString ~= format(`%s="%s"`, k, encodeComponentSafe(v).replace("+", "%2B"));
 			}
 			addHeader("Authorization", "OAuth " ~ authString.join(", "));
 		}
 		if (oauthMethod == OAuthMethod.queryString) {
-			url.params["oauth_version"] = ["1.0"];
+			url.params["oauth_version"] = "1.0";
 			url.params["oauth_signature"] = params["oauth_signature"];
 			url.params["oauth_signature_method"] = params["oauth_signature_method"];
 			url.params["oauth_nonce"] = params["oauth_nonce"];
@@ -809,13 +807,13 @@ class HTTPException : Exception {
 		}
 	}
 	version(online) {
-		with(getRequest(testURL.withParams(["403":""])).perform()) {
+		with(getRequest(testURL.withReplacedParams(["403":""])).perform()) {
 			assert(status == HTTPStatus.Forbidden);
 		}
-		with(getRequest(testURL.withParams(["404":""])).perform()) {
+		with(getRequest(testURL.withReplacedParams(["404":""])).perform()) {
 			assert(status == HTTPStatus.NotFound);
 		}
-		with(getRequest(testURL.withParams(["500":""])).perform()) {
+		with(getRequest(testURL.withReplacedParams(["500":""])).perform()) {
 			assert(status == HTTPStatus.InternalServerError);
 		}
 		with(postRequest(testURL, "beep", testHeaders).perform()) {
@@ -823,7 +821,7 @@ class HTTPException : Exception {
 		}
 	}
 	{
-		auto req = getRequest(testURL.withParams(["saveas":"example"]));
+		auto req = getRequest(testURL.withReplacedParams(["saveas":"example"]));
 		version(online) {
 			with(req.perform()) {
 				assert(overriddenFilename == "example", "content-disposition failure");
@@ -831,7 +829,7 @@ class HTTPException : Exception {
 		}
 	}
 	{
-		auto req = getRequest(testURL.withParams(["PRINTHEADER": ""]));
+		auto req = getRequest(testURL.withReplacedParams(["PRINTHEADER": ""]));
 		req.addHeader("echo", "hello world");
 		version(online) with (req.perform()) {
 			assert(content == "hello world");
@@ -843,11 +841,10 @@ class HTTPException : Exception {
 		scope(exit) if (exists("whack.gif")) remove("whack.gif");
 		scope(exit) if (exists("whack(2).gif")) remove("whack(2).gif");
 		scope(exit) if (exists("whack2.gif")) remove("whack2.gif");
-		a1.saveTo(".", "whack.gif");
-		a1.saveTo(".", "whack2.gif");
+		a1.saveTo("./whack.gif");
+		a1.saveTo("./whack2.gif");
 	}
 
-	//Note: term.ie no longer exists?
 	{ //Oauth: header
 		auto req = getRequest(URL("https://misc.herringway.pw/.test/oauth/examples/echo_api.php?success=true"));
 		req.oauth(OAuthMethod.header, "key", "secret", "accesskey", "accesssecret");
@@ -865,7 +862,7 @@ class HTTPException : Exception {
 		}
 	}
 	{ //Cookies
-		auto req = getRequest(testURL.withParams(["printCookie": "testCookie"]));
+		auto req = getRequest(testURL.withReplacedParams(["printCookie": "testCookie"]));
 		req.cookies ~= Cookie(".herringway.pw", "/", "testCookie", "something");
 		version(online) with (req.perform()) {
 			assert(content == "something");
