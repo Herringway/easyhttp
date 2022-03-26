@@ -574,7 +574,7 @@ struct Response {
 	/++
 	 + Finds matching headers
 	 +/
-	 auto matchingHeaders(string key) {
+	 auto matchingHeaders(string key) inout {
 		return headers.filter!(x => x.key == key)();
 	 }
 	/++
@@ -595,6 +595,13 @@ struct Response {
 			return _content.to!T;
 		}
 	 }
+	 SysTime lastModified() const @safe {
+		auto lastModifiedHeader = matchingHeaders("Last-Modified");
+		if (lastModifiedHeader.empty) {
+			return SysTime.min;
+		}
+		return parseLastModified(lastModifiedHeader.front.value);
+	}
 }
 /++
  + A parsed content-disposition string
@@ -871,4 +878,19 @@ class HTTPException : Exception {
 			assert(content == "Test\nPassword");
 		}
 	}
+}
+
+SysTime parseLastModified(const(char)[] str) @safe {
+	import std.format : formattedRead;
+	static immutable months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	string dummy, month;
+	int day, year, hour, minute, second;
+	formattedRead(str, "%s, %d %s %d %d:%d:%d GMT", dummy, day, month, year, hour, minute, second);
+	return SysTime(DateTime(year, cast(int)months.countUntil(month), day, hour, minute, second), UTC());
+}
+
+@safe unittest {
+	import std.exception : assertThrown;
+	assert(parseLastModified("Wed, 21 Oct 2015 07:28:00 GMT") == SysTime(DateTime(2015, 10, 21, 7, 28, 0), UTC()));
+	assertThrown(parseLastModified("idk"));
 }

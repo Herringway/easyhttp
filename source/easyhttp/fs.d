@@ -1,6 +1,7 @@
 module easyhttp.fs;
 
 import std.stdio : File;
+import std.datetime : SysTime;
 
 version(Windows) {
 	private enum maxPath = 32767;
@@ -148,4 +149,9 @@ package immutable(ubyte)[] trustedRead(string filename) @trusted {
 	import std.exception : assumeUnique;
 	import std.file : read;
 	return assumeUnique(cast(ubyte[])read(filename));
+}
+
+package SysTime trustedTimeLastModified(string path) @trusted {
+	import std.file : timeLastModified;
+	return timeLastModified(path);
 }
