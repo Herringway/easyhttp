@@ -24,10 +24,10 @@ struct DownloadCache {
 		downloader = manager;
 	}
 
-	T get(T)(URL url) const {
-		return get!T(getRequest(url));
+	T get(T)(URL url, bool refresh = false) const {
+		return get!T(getRequest(url), refresh);
 	}
-	T get(T)(const Request req) const {
+	T get(T)(const Request req, bool refresh = false) const {
 		T convert(immutable(ubyte)[] data) @safe {
 			static if (__traits(compiles, cast(T)data)) {
 				return cast(T)data;
@@ -38,30 +38,40 @@ struct DownloadCache {
 		auto path = getFilePath(req.url).toUTF8;
 		if (path.exists) {
 			tracef("%s (%s): found in cache", req.url, path);
-			return convert(trustedRead(path));
-		} else {
-			tracef("%s (%s): fetching", req.url, path);
-			uint retriesLeft = retries;
-			do {
-				retriesLeft--;
-				try {
-					auto data = req.perform.content!(immutable(ubyte)[]);
-					mkdirRecurse(path.dirName);
-					std.file.write(path, data);
-					return convert(data);
-				} catch(Exception e) {
-					if (retriesLeft <= 0) {
-						throw e;
-					} else {
-						tracef("%s (%s): retrying (%s)", req.url, path, e.msg);
-					}
+			bool fetch = false;
+			if (refresh) {
+				const localLastModified = trustedTimeLastModified(path);
+				const remoteLastModified = head(req.url).lastModified;
+				if (remoteLastModified > localLastModified) {
+					fetch = true;
+					tracef("Remote has been modified since last fetch, refreshing (%s > %s)", remoteLastModified, localLastModified);
 				}
-			} while (retriesLeft > 0);
-			assert(0);
+			}
+			if (!fetch) {
+				return convert(trustedRead(path));
+			}
 		}
+		tracef("%s (%s): fetching", req.url, path);
+		uint retriesLeft = retries;
+		do {
+			retriesLeft--;
+			try {
+				auto data = req.perform.content!(immutable(ubyte)[]);
+				mkdirRecurse(path.dirName);
+				std.file.write(path, data);
+				return convert(data);
+			} catch(Exception e) {
+				if (retriesLeft <= 0) {
+					throw e;
+				} else {
+					tracef("%s (%s): retrying (%s)", req.url, path, e.msg);
+				}
+			}
+		} while (retriesLeft > 0);
+		assert(0);
 	}
-	immutable(ubyte)[] get(const Request req) const @safe {
-		return get!(immutable(ubyte)[])(req);
+	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
+		return get!(immutable(ubyte)[])(req, refresh);
 	}
 
 	void queue(Request req) @safe {
@@ -164,5 +174,6 @@ struct DownloadCache {
 @safe unittest {
 	with(DownloadCache("tmp")) {
 		get!(ubyte[])(URL("https://misc.herringway.pw/whack.gif"));
+		get!(ubyte[])(URL("https://misc.herringway.pw/whack.gif"), true);
 	}
 }
