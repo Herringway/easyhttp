@@ -383,7 +383,10 @@ struct Request {
 						case HTTPMethod.get:
 							req.method = VibeHTTPMethod.GET;
 							break;
-						case HTTPMethod.head, HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
+						case HTTPMethod.head:
+							req.method = VibeHTTPMethod.HEAD;
+							break;
+						case HTTPMethod.put, HTTPMethod.delete_, HTTPMethod.trace, HTTPMethod.options, HTTPMethod.connect, HTTPMethod.patch:
 							assert(0, "Unimplemented");
 					}
 					foreach (header; outHeaders) {
@@ -392,7 +395,9 @@ struct Request {
 					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 				},
 				(scope HTTPClientResponse res) {
-					response._content = assumeUnique(res.bodyReader.readAll());
+					if (method != HTTPMethod.head) {
+						response._content = assumeUnique(res.bodyReader.readAll());
+					}
 					response.statusCode = cast(HTTPStatus)res.statusCode;
 					foreach (key, value; res.headers.byKeyValue) {
 						response.headers ~= HTTPHeader(key, value);

@@ -41,6 +41,25 @@ auto postRequest(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if 
 auto post(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
 	return postRequest(inURL, data, headers).perform();
 }
+auto headRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
+	auto result = Request(inURL);
+	result.method = HTTPMethod.head;
+	try {
+		foreach (k, v; headers) {
+			result.addHeader(k, v);
+		}
+	} catch (Exception) {
+		assert(0, "Iterating through headers caused exception?");
+	}
+	return result;
+}
+@safe pure unittest {
+	auto head1 = headRequest(URL(URL.Proto.HTTPS, "localhost"));
+	auto head2 = headRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
+}
+auto head(URL inURL, URLHeaders headers = URLHeaders.init) @safe {
+	return headRequest(inURL, headers).perform();
+}
 
 /++
  + A useless HTTP request for testing
