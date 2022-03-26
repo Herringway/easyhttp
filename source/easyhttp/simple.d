@@ -4,8 +4,9 @@ import easyhttp.http;
 import easyhttp.url;
 import easyhttp.urlencoding;
 
-auto getRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
-	auto result = Request(inURL);
+auto getRequest(const URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
+	URL url = inURL.dup;
+	auto result = Request(url);
 	result.method = HTTPMethod.get;
 	try {
 		foreach (k, v; headers) {
@@ -20,11 +21,12 @@ auto getRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
 	auto get1 = getRequest(URL(URL.Proto.HTTPS, "localhost"));
 	auto get2 = getRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
 }
-auto get(URL inURL, URLHeaders headers = URLHeaders.init) {
+auto get(const URL inURL, URLHeaders headers = URLHeaders.init) {
 	return getRequest(inURL, headers).perform();
 }
-auto postRequest(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
-	auto result = Request(inURL);
+auto postRequest(U)(const URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
+	URL url = inURL.dup;
+	auto result = Request(url);
 	result.method = HTTPMethod.post;
 	result.setPOSTData(data);
 	foreach (k, v; headers) {
@@ -38,11 +40,12 @@ auto postRequest(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if 
 	auto post3 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""], ["":""]);
 	auto post4 = postRequest(URL(URL.Proto.HTTPS, "localhost"), ["":[""]], ["":""]);
 }
-auto post(U)(URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
+auto post(U)(const URL inURL, U data, URLHeaders headers = URLHeaders.init) if (isURLEncodable!U || is(U == POSTData)) {
 	return postRequest(inURL, data, headers).perform();
 }
-auto headRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
-	auto result = Request(inURL);
+auto headRequest(const URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
+	URL url = inURL.dup;
+	auto result = Request(url);
 	result.method = HTTPMethod.head;
 	try {
 		foreach (k, v; headers) {
@@ -57,7 +60,7 @@ auto headRequest(URL inURL, URLHeaders headers = URLHeaders.init) @safe pure {
 	auto head1 = headRequest(URL(URL.Proto.HTTPS, "localhost"));
 	auto head2 = headRequest(URL(URL.Proto.HTTPS, "localhost"), ["":""]);
 }
-auto head(URL inURL, URLHeaders headers = URLHeaders.init) @safe {
+auto head(const URL inURL, URLHeaders headers = URLHeaders.init) @safe {
 	return headRequest(inURL, headers).perform();
 }
 

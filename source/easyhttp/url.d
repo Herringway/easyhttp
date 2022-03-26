@@ -101,7 +101,7 @@ struct URL {
 	string path;
 	///URL fragment - typically refers to a sub-resource
 	string fragment;
-	private this(Proto inProtocol, string inHostname, string inPath, immutable URLParameters inParams, string inFragment) immutable pure @safe {
+	private this(Proto inProtocol, string inHostname, string inPath, immutable URLParameters inParams, string inFragment) immutable pure @safe nothrow {
 		this.params = inParams.idup;
 		this.protocol = inProtocol;
 		this.hostname = inHostname;
@@ -311,6 +311,9 @@ struct URL {
 	}
 	immutable(URL) idup() @safe pure const {
 		return immutable URL(protocol, hostname, path, params.idup, fragment);
+	}
+	URL dup() @safe pure const nothrow {
+		return URL(protocol, hostname, path, params.dup, fragment);
 	}
 	int opCmp(const URL other) @safe pure const {
 		if (auto protocolComparison = this.protocol - other.protocol) {

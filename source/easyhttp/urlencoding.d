@@ -83,9 +83,15 @@ struct URLParameters {
 	auto remove(const string key) {
 		params.remove(key);
 	}
-	immutable(URLParameters) idup() const @trusted pure {
-		const(string[])[string] paramsCopy = params.dup;
+	immutable(URLParameters) idup() const @trusted pure nothrow {
+		import std.exception : assumeWontThrow;
+		const(string[])[string] paramsCopy = assumeWontThrow(params.dup);
 		return immutable URLParameters(assumeUnique(paramsCopy));
+	}
+	URLParameters dup() const @safe pure nothrow {
+		import std.conv : to;
+		import std.exception : assumeWontThrow;
+		return URLParameters(assumeWontThrow(params.to!(typeof(URLParameters.params))));
 	}
 }
 @safe pure unittest {
