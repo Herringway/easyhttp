@@ -374,8 +374,6 @@ struct URL {
 	assert(URL("http://url.example/").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
 	assert(URL("http://url.example/").withReplacedParams(["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
 	assert(URL("http://url.example/").withReplacedParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
-	import std.stdio;
-	debug writeln(URL("http://url.example/?a=c").withReplacedParams(["a":"b"]));
 	assert(URL("http://url.example/?a=c").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 	assert(URL("http://url.example/?test").withReplacedParams(["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
