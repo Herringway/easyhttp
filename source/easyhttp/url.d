@@ -277,7 +277,7 @@ struct URL {
 	}
 	///ditto
 	URL absoluteURL(T)(string urlB, T params) const if (isURLEncodable!T) {
-		return absoluteURL(URL(urlB, params));
+		return absoluteURL(URL(urlB).withReplacedParams(params));
 	}
 	///ditto
 	URL absoluteURL(string fmt, Args...)(Args fmtParams) const {
@@ -419,6 +419,7 @@ struct URL {
 	assert(URL("http://url.example/dir").absoluteURL(URL("different")).text() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
 	assert(URL("http://url.example").absoluteURL!"/%s"("test").text() == "http://url.example/test");
 	assert(URL("http://url.example").absoluteURL!"/%s"(5).text() == "http://url.example/5");
+	assert(URL("http://url.example/").absoluteURL("/", ["hello": "world"]).text == "http://url.example/?hello=world");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
