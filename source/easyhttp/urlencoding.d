@@ -29,6 +29,7 @@ struct URLParameters {
 		return val;
 	}
 	auto opIndexAssign(string[] vals, string key) {
+		remove(key);
 		foreach (val; vals) {
 			params ~= QueryParameter(key, val);
 		}
@@ -99,6 +100,9 @@ struct URLParameters {
 		assert(x["a"].equal(["6", "7"]));
 		x.remove("a");
 		assert(x.empty);
+		x["a"] ~= "b";
+		x["a"] = ["c"];
+		assert(x["a"].equal(["c"]));
 	}
 }
 /++
