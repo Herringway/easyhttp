@@ -10,30 +10,34 @@ import std.path;
 import std.range;
 import std.variant;
 
-enum ShouldDownload {
+deprecated("Use ShouldContinue") alias ShouldDownload = ShouldContinue;
+enum ShouldContinue {
 	no = 0,
 	yes = 1,
 }
 
-struct DownloadRequest {
+deprecated("Use QueuedRequest") alias DownloadRequest = QueuedRequest;
+struct QueuedRequest {
 	Request request;
 	string destPath;
 	size_t retries = 1;
 	FileExistsAction fileExistsAction;
-	void delegate(in DownloadRequest request, in DownloadResult result, in QueueDetails qd) @safe postDownload;
-	ShouldDownload delegate(in DownloadRequest request, in QueueDetails qd) @safe preDownload;
-	void delegate(in DownloadRequest request, in QueueDetails qd, in DownloadError error) @safe onError;
-	void delegate(in DownloadRequest request, in QueueDetails qd, in DownloadProgress progress) @safe onProgress;
+	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
+	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 }
 struct QueueDetails {
 	ulong ID;
 	ulong count;
 }
-struct DownloadError {
+deprecated("Use QueueError") alias DownloadError = QueueError;
+struct QueueError {
 	size_t ID;
 	string msg;
 }
-struct QueuedDownload {
+deprecated("Use QueueItem") alias QueuedDownload = QueueItem;
+struct QueueItem {
 	size_t ID;
 	Request request;
 	string destPath;
@@ -41,13 +45,17 @@ struct QueuedDownload {
 	size_t retries;
 }
 
-struct DownloadResult {
-	SavedFileInformation response;
+deprecated("Use QueueResult") alias DownloadResult = QueueResult;
+struct QueueResult {
+	Response response;
+	string path;
+	bool overwritten;
 	size_t successfulAttempt;
-	DownloadError error;
+	QueueError error;
 }
 
-enum DownloadState {
+deprecated("Use QueueItemState") alias DownloadState = QueueItemState;
+enum QueueItemState {
 	waiting,
 	downloading,
 	skipping,
@@ -56,28 +64,30 @@ enum DownloadState {
 	error
 }
 
-struct DownloadProgress {
-	DownloadState state;
+deprecated("Use QueueItemProgress") alias DownloadProgress = QueueItemProgress;
+struct QueueItemProgress {
+	QueueItemState state;
 	size_t downloaded;
-	DownloadError error;
+	size_t size;
+	QueueError error;
 	void toString(T)(T sink) const if (isOutputRange!(T, char[])) {
 		final switch (state) {
-			case DownloadState.waiting:
+			case QueueItemState.waiting:
 				put(sink, "Waiting");
 				break;
-			case DownloadState.downloading:
+			case QueueItemState.downloading:
 				put(sink, "Downloading");
 				break;
-			case DownloadState.skipping:
+			case QueueItemState.skipping:
 				put(sink, "Skipping");
 				break;
-			case DownloadState.starting:
+			case QueueItemState.starting:
 				put(sink, "Starting");
 				break;
-			case DownloadState.complete:
+			case QueueItemState.complete:
 				put(sink, "Complete");
 				break;
-			case DownloadState.error:
+			case QueueItemState.error:
 				put(sink, "Error - ");
 				put(sink, error.msg);
 				break;
@@ -85,23 +95,30 @@ struct DownloadProgress {
 	}
 }
 
-struct DownloadManager {
+deprecated("Use RequestQueue instead") alias DownloadManager = RequestQueue;
+
+struct RequestQueue {
 	uint queueCount = 4;
-	private const(DownloadRequest)[] queue;
-	void delegate(in DownloadRequest request, in DownloadResult result, in QueueDetails qd) @safe postDownloadFunction;
-	void delegate(in DownloadRequest request, in QueueDetails qd, in DownloadError error) @safe onError;
-	ShouldDownload delegate(in DownloadRequest request, in QueueDetails qd) @safe preDownloadFunction;
-	void delegate(in DownloadRequest request, in QueueDetails qd, in DownloadProgress progress) @safe onProgress;
+	private const(QueuedRequest)[] queue;
+	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
+	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		import std.algorithm.iteration : map;
 		import std.algorithm.searching : canFind;
 		return queue.map!(x => x.destPath).canFind(path);
 	}
-	void add(const DownloadRequest request) nothrow @safe
-		in(request.destPath.isValidPath, "Invalid path: "~request.destPath)
+	size_t add(const QueuedRequest request) nothrow @safe
+		in((request.destPath == "") || request.destPath.isValidPath, "Invalid path: "~request.destPath)
 	{
 		queue ~= request;
+		return queue.length - 1;
 	}
+	/++
+		Cleans up the download queue for more efficient downloading. Sorts queued items
+		by URL, removes duplicates.
+	+/
 	void prepare() @safe pure {
 		import std.algorithm.iteration : uniq;
 		import std.algorithm.sorting : sort;
@@ -109,11 +126,23 @@ struct DownloadManager {
 		indices.sort!((x, y) => queue[x].request.url > queue[y].request.url)();
 		queue = indexed(queue, indices).uniq().array;
 	}
-	void execute() @system {
+	/++
+		Begin downloading queued items.
+	+/
+	void download() @system {
+		process(true);
+	}
+	/++
+		Begin executing queued requests.
+	+/
+	void perform() @system {
+		process(false);
+	}
+	private void process(bool save) @system {
 		import std.range : empty, front, popFront;
 		auto downloaders = new Tid[](queueCount);
 		foreach (idx, ref downloader; downloaders) {
-			downloader = spawn(&downloadRoutine);
+			downloader = spawn(&downloadRoutine, save);
 			debug import std.format : format;
 			debug register(format!"downloader %s"(idx), downloader);
 		}
@@ -123,33 +152,34 @@ struct DownloadManager {
 			receive(
 				(bool isReady, Tid child) {
 					while (id < queue.length) {
-						if (preDownload(id) == ShouldDownload.yes) {
-							updateProgress(id, DownloadProgress(DownloadState.starting));
-							send(child, immutable QueuedDownload(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
+						if (preDownload(id) == ShouldContinue.yes) {
+							updateProgress(id, QueueItemProgress(QueueItemState.starting));
+							assert(!save || (queue[id].destPath != ""));
+							send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
 							id++;
 							return;
 						} else {
-							updateProgress(id, DownloadProgress(DownloadState.skipping));
+							updateProgress(id, QueueItemProgress(QueueItemState.skipping));
 						}
 						id++;
 					}
 					completed++;
 					send(child, true);
 				},
-				(immutable size_t successID, immutable DownloadResult result) {
+				(immutable size_t successID, immutable QueueResult result) {
 					postDownload(successID, result);
-					updateProgress(successID, DownloadProgress(DownloadState.complete));
+					updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
 				},
-				(DownloadError error) {
+				(QueueError error) {
 					errorOccurred(error.ID, error);
-					auto progress = DownloadProgress(DownloadState.error);
+					auto progress = QueueItemProgress(QueueItemState.error);
 					progress.error = error;
 					updateProgress(error.ID, progress);
 				}
 			);
 		}
 	}
-	private void updateProgress(in ulong id, in DownloadProgress progress) const @safe {
+	private void updateProgress(in ulong id, in QueueItemProgress progress) const @safe {
 		if (onProgress) {
 			onProgress(queue[id], QueueDetails(id, queue.length), progress);
 		}
@@ -157,7 +187,7 @@ struct DownloadManager {
 			queue[id].onProgress(queue[id], QueueDetails(id, queue.length), progress);
 		}
 	}
-	private void postDownload(in ulong id, in DownloadResult result) const @safe {
+	private void postDownload(in ulong id, in QueueResult result) const @safe {
 		if (postDownloadFunction) {
 			postDownloadFunction(queue[id], result, QueueDetails(id, queue.length));
 		}
@@ -165,17 +195,17 @@ struct DownloadManager {
 			queue[id].postDownload(queue[id], result, QueueDetails(id, queue.length));
 		}
 	}
-	private ShouldDownload preDownload(in ulong id) const @safe {
-		ShouldDownload result;
+	private ShouldContinue preDownload(in ulong id) const @safe {
+		ShouldContinue result = ShouldContinue.yes;
 		if (preDownloadFunction) {
 			result = preDownloadFunction(queue[id], QueueDetails(id, queue.length));
 		}
-		if ((result == ShouldDownload.yes) && queue[id].preDownload) {
+		if ((result == ShouldContinue.yes) && queue[id].preDownload) {
 			result = queue[id].preDownload(queue[id], QueueDetails(id, queue.length));
 		}
 		return result;
 	}
-	private void errorOccurred(in ulong id, in DownloadError error) const @safe {
+	private void errorOccurred(in ulong id, in QueueError error) const @safe {
 		if (onError) {
 			onError(queue[id], QueueDetails(id, queue.length), error);
 		}
@@ -184,7 +214,7 @@ struct DownloadManager {
 		}
 	}
 }
-private void downloadRoutine() @system {
+private void downloadRoutine(bool save) @system {
 	bool finished;
 	while (!finished) {
 		send(ownerTid, true, thisTid);
@@ -192,22 +222,27 @@ private void downloadRoutine() @system {
 			(bool done) {
 				finished = true;
 			},
-			(immutable QueuedDownload download) {
+			(immutable QueueItem download) {
 				import std.algorithm.comparison : max;
 				size_t attemptsLeft = max(1, download.retries);
 				do {
 					attemptsLeft--;
 					try {
-						immutable response = download.request.saveTo(download.destPath, download.fileExistsAction);
-						send(ownerTid, download.ID, immutable DownloadResult(response, download.retries - attemptsLeft));
+						if (save) {
+							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction);
+							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft));
+						} else {
+							immutable response = download.request.perform();
+							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft));
+						}
 						break;
 					} catch (Exception e) {
 						if (attemptsLeft == 0) {
-							send(ownerTid, DownloadError(download.ID, e.msg));
+							send(ownerTid, QueueError(download.ID, e.msg));
 						}
 					} catch (Throwable e) {
 						if (attemptsLeft == 0) {
-							send(ownerTid, DownloadError(download.ID, e.msg));
+							send(ownerTid, QueueError(download.ID, e.msg));
 						}
 					}
 				} while(attemptsLeft > 0);
@@ -220,24 +255,24 @@ private void downloadRoutine() @system {
 }
 @system unittest {
 	import easyhttp.url : URL;
-	import easyhttp.simple : getRequest;
+	import easyhttp.simple : getRequest, postRequest;
 	import std.file : exists, remove;
 	import std.format : format;
-	with(DownloadManager()) {
+	with(RequestQueue()) {
 		bool pre1, pre2, post1, post2;
 		preDownloadFunction = (r, q) {
 			pre1 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		postDownloadFunction = (r, r2, q) {
 			post1 = true;
 		};
-		auto dlReq = DownloadRequest();
+		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
 		dlReq.destPath = "whack.gif";
 		dlReq.preDownload = (r, q) {
 			pre2 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		dlReq.postDownload = (r, r2, q) {
 			post2 = true;
@@ -245,24 +280,44 @@ private void downloadRoutine() @system {
 		};
 		add(dlReq);
 		version(online) {
-			execute();
+			download();
 			assert(pre1 && pre2 && post1 && post2);
 		}
 	}
-	with(DownloadManager()) {
+	with(RequestQueue()) {
 		bool pre1, pre2, post1, post2;
 		preDownloadFunction = (r, q) {
 			pre1 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		postDownloadFunction = (r, r2, q) {
 			post1 = true;
 		};
-		auto dlReq = DownloadRequest();
+		auto dlReq = QueuedRequest();
+		dlReq.request = postRequest(URL("http://misc.herringway.pw/.test/"), "hi");
+		dlReq.postDownload = (r, r2, q) {
+			assert(r2.response.content == "hi");
+		};
+		add(dlReq);
+		version(online) {
+			perform();
+			assert(pre1 && post1);
+		}
+	}
+	with(RequestQueue()) {
+		bool pre1, pre2, post1, post2;
+		preDownloadFunction = (r, q) {
+			pre1 = true;
+			return ShouldContinue.yes;
+		};
+		postDownloadFunction = (r, r2, q) {
+			post1 = true;
+		};
+		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
 		dlReq.preDownload = (r, q) {
 			pre2 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		dlReq.postDownload = (r, r2, q) {
 			post2 = true;
@@ -273,16 +328,16 @@ private void downloadRoutine() @system {
 			add(dlReq);
 		}
 		version(online) {
-			execute();
+			download();
 			assert(pre1 && pre2 && post1 && post2);
 		}
 	}
 	// no downloads pass
-	with(DownloadManager()) {
+	with(RequestQueue()) {
 		bool pre1, pre2, post1, post2;
 		preDownloadFunction = (r, q) {
 			pre1 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		postDownloadFunction = (r, r2, q) {
 			post1 = true;
@@ -290,11 +345,11 @@ private void downloadRoutine() @system {
 		onProgress = (req, qd, p) {
 			writefln!"[%05d/%05d] Downloading %s to %s"(qd.ID, qd.count, req.request.url, req.destPath);
 		};
-		auto dlReq = DownloadRequest();
+		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
 		dlReq.preDownload = (r, q) {
 			pre2 = true;
-			return ShouldDownload.no;
+			return ShouldContinue.no;
 		};
 		dlReq.postDownload = (r, r2, q) {
 			post2 = true;
@@ -305,25 +360,25 @@ private void downloadRoutine() @system {
 			add(dlReq);
 		}
 		version(online) {
-			execute();
+			download();
 			assert(pre1 && pre2 && !post1 && !post2);
 		}
 	}
 	// no downloads pass (global)
-	with(DownloadManager()) {
+	with(RequestQueue()) {
 		bool pre1, pre2, post1, post2;
 		preDownloadFunction = (r, q) {
 			pre1 = true;
-			return ShouldDownload.no;
+			return ShouldContinue.no;
 		};
 		postDownloadFunction = (r, r2, q) {
 			post1 = true;
 		};
-		auto dlReq = DownloadRequest();
+		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
 		dlReq.preDownload = (r, q) {
 			pre2 = true;
-			return ShouldDownload.yes;
+			return ShouldContinue.yes;
 		};
 		dlReq.postDownload = (r, r2, q) {
 			post2 = true;
@@ -334,7 +389,7 @@ private void downloadRoutine() @system {
 			add(dlReq);
 		}
 		version(online) {
-			execute();
+			download();
 			assert(pre1 && !pre2 && !post1 && !post2);
 		}
 	}

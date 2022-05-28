@@ -15,12 +15,12 @@ import easyhttp.url;
 struct DownloadCache {
 	string basePath;
 	uint retries = 1;
-	private DownloadManager downloader;
+	private RequestQueue downloader;
 
 	this(string path) @safe {
 		basePath = path;
 	}
-	this(DownloadManager manager) @safe {
+	this(RequestQueue manager) @safe {
 		downloader = manager;
 	}
 
@@ -79,7 +79,7 @@ struct DownloadCache {
 		if (dest.exists) {
 			return;
 		}
-		DownloadRequest download;
+		QueuedRequest download;
 		download.request = req;
 		download.fileExistsAction = FileExistsAction.skip;
 		download.destPath = dest;
@@ -88,8 +88,11 @@ struct DownloadCache {
 	void prepare() @safe pure {
 		downloader.prepare();
 	}
-	void execute() @system {
-		downloader.execute();
+	void download() @system {
+		downloader.download();
+	}
+	void perform() @system {
+		downloader.perform();
 	}
 
 	auto getFilePath(const URL url) const @safe {
