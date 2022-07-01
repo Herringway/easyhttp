@@ -28,6 +28,7 @@ struct DownloadCache {
 		return get!T(getRequest(url), refresh);
 	}
 	T get(T)(const Request req, bool refresh = false) const {
+		import std.datetime.systime : SysTime;
 		T convert(immutable(ubyte)[] data) @safe {
 			static if (__traits(compiles, cast(T)data)) {
 				return cast(T)data;
@@ -45,6 +46,11 @@ struct DownloadCache {
 				if (remoteLastModified > localLastModified) {
 					fetch = true;
 					tracef("Remote has been modified since last fetch, refreshing (%s > %s)", remoteLastModified, localLastModified);
+				} else if (remoteLastModified == SysTime.min) {
+					fetch = true;
+					trace("Remote has no modified header. Refreshing anyway.");
+				} else {
+					tracef("Remote has not been modified since last fetch, not refreshing (%s <= %s)", remoteLastModified, localLastModified);
 				}
 			}
 			if (!fetch) {
