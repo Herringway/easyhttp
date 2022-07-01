@@ -6,6 +6,9 @@
 	"dependencies": {
 		"vibe-d:http": "~>0.9.4"
 	},
+	"subPackages": [
+		"prettydownloadmanager"
+	],
 	"configurations": [
 		{
 			"name": "default",

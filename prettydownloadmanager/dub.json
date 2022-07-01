@@ -1,0 +1,10 @@
+{
+	"name": "prettydownloadmanager",
+	"description": "A download manager with pretty console printing.",
+	"copyright": "Copyright © 2022, Cameron",
+	"authors": ["Cameron \"Herringway\" Ross"],
+	"dependencies": {
+		"easyhttp": "*",
+		"progresso": "*"
+	}
+}
