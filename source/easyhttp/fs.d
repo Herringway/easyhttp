@@ -78,14 +78,25 @@ auto fixPath(in string inPath, InvalidCharHandling invalidCharHandling = Invalid
 	version(Windows) assert(fixPath(`\\?\C:\windows`).equal(`C:\windows`));
 }
 string fixPathComponent(string input, InvalidCharHandling invalidCharHandling = InvalidCharHandling.remove) @safe pure {
-	import std.algorithm : among, filter, map, min, substitute;
+	import std.algorithm : all, among, filter, map, min, substitute;
 	import std.meta : aliasSeqOf;
-	import std.range : roundRobin;
+	import std.range : repeat, roundRobin;
 	import std.utf : toUTF8;
 	final switch (invalidCharHandling) {
 		case InvalidCharHandling.replaceUnicode:
+			if (input.all!(x => x == '.')) {
+				return '．'.repeat(input.length).toUTF8;
+			}
 			return input.substitute!(aliasSeqOf!(roundRobin(invalidPathCharacters, invalidPathUnicodeReplacements))).toUTF8;
 		case InvalidCharHandling.remove:
+			if (input.all!(x => x == '.')) {
+				version(Windows) {} else {
+					if (input.length > 2) {
+						return input;
+					}
+				}
+				throw new Exception("Cannot create valid filename from all-periods filename");
+			}
 			return input.filter!(x => !x.among!(aliasSeqOf!invalidPathCharacters)).toUTF8;
 	}
 }
@@ -93,6 +104,7 @@ string fixPathComponent(string input, InvalidCharHandling invalidCharHandling = 
 	assert(fixPathComponent("ok") == "ok");
 	assert(fixPathComponent("invalid\0") == "invalid");
 	assert(fixPathComponent("invalid\0", InvalidCharHandling.replaceUnicode) == "invalid␀");
+	assert(fixPathComponent("...", InvalidCharHandling.replaceUnicode) == "．．．");
 }
 /++
  + Creates a monotonically-increasing filename.
