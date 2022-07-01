@@ -407,7 +407,15 @@ struct Request {
 								}
 								break;
 							case "content-md5":
-								enforce(response.md5 == toHexString(Base64.decode(value)), new HashException("MD5", response.md5, toHexString(Base64.decode(value))));
+								string md5;
+								try {
+									md5 = toHexString(Base64.decode(value));
+								} catch (Exception) {
+									import std.experimental.logger : tracef;
+									tracef("Invalid content-md5 string '%s' received, discarding", value);
+									continue;
+								}
+								enforce(response.md5 == md5, new HashException("MD5", response.md5, md5));
 								break;
 							case "content-length":
 								enforce(ignoreSizeMismatch || (response._content.length == value.to!size_t), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, value.to!size_t)));
