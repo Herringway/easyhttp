@@ -306,7 +306,7 @@ struct URL {
 			sink("/");
 		}
 
-		sink(path);
+		sink(encodePathComponentSafe(path));
 
 		switch (fmt.spec) {
 			case 's':
@@ -365,6 +365,7 @@ struct URL {
 	assert(URL("/something").text() == "/something", "Path-only absolute URL recreation failure");
 	assert(URL("/something?a=b:d").text() == "/something?a=b%3Ad");
 	assert(URL("http://url.example/?a=b&&").text() == "http://url.example/?a=b");
+	assert(URL("http://url.example/blah().file").text() == "http://url.example/blah%28%29.file");
 	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).text() == "http://url.example/?a=b");
 }
 @safe pure unittest {

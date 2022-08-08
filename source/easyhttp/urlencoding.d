@@ -239,7 +239,7 @@ package string encodeComponentSafe(string input) @safe pure {
 	string output;
 	output.reserve(input.length*3);
 	foreach (character; input) {
-		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '(', ')')) {
+		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'')) {
 			output ~= character;
 		} else {
 			output ~= format!"%%%02X"(character);
@@ -252,6 +252,26 @@ package string encodeComponentSafe(string input) @safe pure {
 	assert(encodeComponentSafe("Hello") == "Hello");
 	assert(encodeComponentSafe("Hello ") == "Hello%20");
 	assert(encodeComponentSafe("Helloã") == "Hello%C3%A3");
+}
+package string encodePathComponentSafe(string input) @safe pure {
+	string output;
+	output.reserve(input.length*3);
+	foreach (character; input) {
+		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '/')) {
+			output ~= character;
+		} else {
+			output ~= format!"%%%02X"(character);
+		}
+	}
+	return output;
+}
+///
+@safe pure unittest {
+	assert(encodePathComponentSafe("Hello") == "Hello");
+	assert(encodePathComponentSafe("Hello ") == "Hello%20");
+	assert(encodePathComponentSafe("/hello/world") == "/hello/world");
+	assert(encodePathComponentSafe("Hello ") == "Hello%20");
+	assert(encodePathComponentSafe("Helloã") == "Hello%C3%A3");
 }
 package string decodeComponentSafe(string input) @safe pure {
 	import std.utf : byCodeUnit;
