@@ -650,7 +650,7 @@ class StatusException : HTTPException {
 	 +  file = The file where the error occurred
      +  line = The line where the error occurred
 	 +/
-	this(HTTPStatus errorCode, const URL url, string file = __FILE__, size_t line = __LINE__) {
+	this(HTTPStatus errorCode, const URL url, string file = __FILE__, size_t line = __LINE__) @safe {
 		code = errorCode;
 		super(format("Error %d (%s) fetching URL %s", errorCode, errorCode, url), file, line);
 	}

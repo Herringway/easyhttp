@@ -24,19 +24,12 @@ struct DownloadCache {
 		downloader = manager;
 	}
 
-	T get(T)(URL url, bool refresh = false) const {
-		return get!T(getRequest(url), refresh);
+	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
+		return get(req, getFilePath(req.url).toUTF8, refresh);
 	}
-	T get(T)(const Request req, bool refresh = false) const {
+	immutable(ubyte)[] get(const Request req, string path, bool refresh = false) const @safe {
 		import std.datetime.systime : SysTime;
-		T convert(immutable(ubyte)[] data) @safe {
-			static if (__traits(compiles, cast(T)data)) {
-				return cast(T)data;
-			} else {
-				return data.to!T;
-			}
-		}
-		auto path = getFilePath(req.url).toUTF8;
+		import std.exception : enforce;
 		if (path.exists) {
 			tracef("%s (%s): found in cache", req.url, path);
 			bool fetch = false;
@@ -54,7 +47,7 @@ struct DownloadCache {
 				}
 			}
 			if (!fetch) {
-				return convert(trustedRead(path));
+				return trustedRead(path);
 			}
 		}
 		tracef("%s (%s): fetching", req.url, path);
@@ -62,10 +55,12 @@ struct DownloadCache {
 		do {
 			retriesLeft--;
 			try {
-				auto data = req.perform.content!(immutable(ubyte)[]);
+				auto resp = req.perform();
+				enforce((resp.statusCode >= HTTPStatus.OK) && (resp.statusCode < HTTPStatus.MultipleChoices), new StatusException(resp.statusCode, req.url));
+				auto data = resp.content!(immutable(ubyte)[]);
 				mkdirRecurse(path.dirName);
 				std.file.write(path, data);
-				return convert(data);
+				return data;
 			} catch(Exception e) {
 				if (retriesLeft <= 0) {
 					throw e;
@@ -75,9 +70,6 @@ struct DownloadCache {
 			}
 		} while (retriesLeft > 0);
 		assert(0);
-	}
-	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
-		return get!(immutable(ubyte)[])(req, refresh);
 	}
 
 	void queue(Request req) @safe {
@@ -182,7 +174,7 @@ struct DownloadCache {
 
 @safe unittest {
 	with(DownloadCache("tmp")) {
-		get!(ubyte[])(URL("https://misc.herringway.pw/whack.gif"));
-		get!(ubyte[])(URL("https://misc.herringway.pw/whack.gif"), true);
+		get(getRequest(URL("https://misc.herringway.pw/whack.gif")));
+		get(getRequest(URL("https://misc.herringway.pw/whack.gif")), true);
 	}
 }
