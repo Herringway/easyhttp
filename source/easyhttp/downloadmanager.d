@@ -100,7 +100,7 @@ deprecated("Use RequestQueue instead") alias DownloadManager = RequestQueue;
 
 struct RequestQueue {
 	uint queueCount = 4;
-	private const(QueuedRequest)[] queue;
+	package const(QueuedRequest)[] queue;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
