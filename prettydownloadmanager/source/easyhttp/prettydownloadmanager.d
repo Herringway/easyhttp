@@ -8,6 +8,7 @@ import std.experimental.logger;
 struct PrettyDownloadManager {
 	private RequestQueue manager;
 	private ProgressTracker progressTracker;
+	private bool loaded;
 
 	void showTotal() nothrow @safe pure {
 		progressTracker.showTotal = true;
@@ -17,33 +18,42 @@ struct PrettyDownloadManager {
 		return manager.pathAlreadyInQueue(path);
 	}
 	void add(const QueuedRequest request) @safe {
-		import std.conv : text;
-		const id = manager.add(request);
-		progressTracker.addNewItem(id);
-		progressTracker.setItemName(id, request.request.url.text);
+		manager.add(request);
 	}
 	void prepare() @safe pure {
 		manager.prepare();
+		prepareBars();
 	}
 	void download() @system {
+		prepareBars();
 		manager.onProgress = (request, queueDetails, progress) @safe {
 			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
-				//warningf("Starting %s", queueDetails.ID);
 				progressTracker.setItemActive(queueDetails.ID);
 			}
-			//warningf("Setting details for %s: %s, %s, %s", queueDetails.ID, progress.size, progress.downloaded, progress.state);
 			progressTracker.setItemMaximum(queueDetails.ID, progress.size);
 			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
-			progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
+			if (progress.state == QueueItemState.error) {
+				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+			} else {
+				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
+			}
 			if (progress.state == QueueItemState.complete) {
-				//warningf("Completed %s", queueDetails.ID);
 				progressTracker.completeItem(queueDetails.ID);
 			}
 			progressTracker.updateDisplay();
-			//writeln(progress);
 		};
 		manager.download();
+	}
+	private void prepareBars() @safe pure {
+		import std.conv : text;
+		if (!loaded) {
+			foreach (id, request; manager.queue) {
+				progressTracker.addNewItem(id);
+				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
+			}
+			loaded = true;
+		}
 	}
 }
 
