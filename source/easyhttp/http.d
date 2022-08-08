@@ -13,6 +13,7 @@ import std.digest.md;
 import std.digest.sha;
 import std.encoding;
 import std.exception;
+import std.experimental.logger;
 import std.file;
 import std.json;
 import std.path;
@@ -360,21 +361,33 @@ struct Request {
 			requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
 					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
+					if (verbose) {
+						tracef("Request type: %s", method);
+					}
 					final switch (method) {
 						case HTTPMethod.post:
 							req.method = VibeHTTPMethod.POST;
 							final switch (postDataType) {
 								case POSTDataType.none:
+									if (verbose) {
+										tracef("Empty POST body");
+									}
 									break;
 								case POSTDataType.form:
 									DictionaryList!string form;
 									foreach (param; formPOSTData) {
 										form[param.key] = param.value;
+										if (verbose) {
+											tracef("Adding form parameter %s: %s", param.key, param.value);
+										}
 									}
 									req.writeFormBody(form.byKeyValue);
 									break;
 								case POSTDataType.raw:
 									req.writeBody(rawPOSTData, contentType);
+									if (verbose) {
+										tracef("Adding raw form data %s", cast(string)rawPOSTData);
+									}
 									break;
 							}
 							break;
@@ -390,6 +403,11 @@ struct Request {
 					foreach (header; outHeaders) {
 						req.headers[header.key] = header.value;
 					}
+					if (verbose) {
+						foreach (key, value; req.headers.byKeyValue) {
+							tracef("Adding header %s: %s", key, value);
+						}
+					}
 					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 				},
 				(scope HTTPClientResponse res) {
@@ -397,8 +415,15 @@ struct Request {
 						response._content = assumeUnique(res.bodyReader.readAll());
 					}
 					response.statusCode = cast(HTTPStatus)res.statusCode;
+					if (verbose) {
+						tracef("Response code: %s", res.statusCode);
+						tracef("Received body %s", response._content);
+					}
 					foreach (key, value; res.headers.byKeyValue) {
 						response.headers ~= HTTPHeader(key, value);
+						if (verbose) {
+							tracef("Received header %s: %s", key, value);
+						}
 						switch (key.toLower) {
 							case "content-disposition":
 								immutable disposition = parseDispositionString(value);
@@ -428,6 +453,9 @@ struct Request {
 					}
 					foreach (key, cookie; res.cookies.byKeyValue) {
 						response.outCookies ~= Cookie(cookie.domain, cookie.path, key, cookie.value);
+						if (verbose) {
+							tracef("Received cookie %s %s, %s: %s", cookie.domain, cookie.path, key, cookie.value);
+						}
 					}
 				},
 			settings);
