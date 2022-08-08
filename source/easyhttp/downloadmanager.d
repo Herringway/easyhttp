@@ -22,6 +22,7 @@ struct QueuedRequest {
 	string destPath;
 	size_t retries = 1;
 	FileExistsAction fileExistsAction;
+	string label;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
