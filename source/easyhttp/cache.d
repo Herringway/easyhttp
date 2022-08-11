@@ -18,7 +18,9 @@ struct DownloadCache {
 	uint retries = 1;
 	private RequestQueue downloader;
 
-	this(string path) @safe {
+	this(string path) @safe
+	in(path != "", "Path cannot be blank")
+	{
 		basePath = path;
 	}
 	this(RequestQueue manager) @safe {
