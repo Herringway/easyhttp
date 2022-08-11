@@ -6,6 +6,7 @@ import std.file;
 import std.path;
 import std.utf;
 
+import easyhttp.config;
 import easyhttp.downloadmanager;
 import easyhttp.fs;
 import easyhttp.http;
@@ -118,6 +119,9 @@ struct DownloadCache {
 		}
 		skipOver(urlPath, "/");
 		return fixPath(buildNormalizedPath(base, url.hostname, urlPath), InvalidCharHandling.replaceUnicode);
+	}
+	static auto systemCache() @safe {
+		return DownloadCache(settings.systemCachePath);
 	}
 }
 

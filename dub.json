@@ -12,12 +12,22 @@
 	"configurations": [
 		{
 			"name": "default",
+			"targetType": "library",
+			"dependencies": {
+				"easysettings": "~>0.0.3"
+			}
+		},
+		{
+			"name": "no-global-config",
 			"targetType": "library"
 		},
 		{
 			"name": "online-test",
 			"targetType": "library",
-			"versions": ["online"]
+			"versions": ["online"],
+			"dependencies": {
+				"easysettings": "~>0.0.3"
+			}
 		}
 	]
 }

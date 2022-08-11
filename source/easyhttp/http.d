@@ -26,6 +26,7 @@ import std.typecons;
 import std.uri;
 import std.utf;
 
+import easyhttp.config;
 import easyhttp.fs;
 import easyhttp.url;
 import easyhttp.urlencoding;
@@ -156,16 +157,17 @@ struct HTTPHeader {
 	string value;
 }
 
-immutable Nullable!(string, "") systemCertPath;
+immutable Nullable!string systemCertPath;
 shared static this() {
-	version(Windows) immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
-	version(Linux) immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
-	version(FreeBSD) immutable caCertSearchPaths = ["/usr/local/share/certs/ca-root-nss.crt"];
-	foreach (path; caCertSearchPaths)
+	version(Windows) static immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
+	version(Linux) static immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
+	version(FreeBSD) static immutable caCertSearchPaths = ["/usr/local/share/certs/ca-root-nss.crt"];
+	foreach (path; caCertSearchPaths) {
 		if (path.exists) {
 			systemCertPath = Nullable!(string, "")(path);
 			break;
 		}
+	}
 }
 
 enum POSTDataType {
@@ -350,8 +352,11 @@ struct Request {
 		TLSPeerValidationMode* validation = new TLSPeerValidationMode((peerVerification ? TLSPeerValidationMode.checkTrust : 0) | (ignoreHostCert ? 0 : TLSPeerValidationMode.validCert));
 		settings.tlsContextSetup = (scope TLSContext context) @safe {
 			try {
-				if (!systemCertPath.isNull) {
-					context.useTrustedCertificateFile(systemCertPath.get);
+				foreach (path; extraCurlCertSearchPaths.chain(.settings.certPaths, systemCertPath)) {
+					if (path.exists) {
+						context.useTrustedCertificateFile(path);
+						break;
+					}
 				}
 				context.peerValidationMode = *validation;
 			} catch (Exception) {}
