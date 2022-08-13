@@ -3,6 +3,7 @@
 	"description": "An easy-to-use HTTP client library.",
 	"copyright": "Copyright © 2020, Cameron",
 	"authors": ["Cameron \"Herringway\" Ross"],
+	"license": "BSL-1.0",
 	"dependencies": {
 		"vibe-d:http": "~>0.9.4"
 	},
