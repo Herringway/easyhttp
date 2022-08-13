@@ -9,6 +9,7 @@ import std.exception;
 import std.format;
 import std.range;
 import std.string;
+import std.traits;
 import std.uni;
 import std.uri;
 
@@ -31,21 +32,23 @@ struct QueryParameter {
  +  url = URL to analyze
  +/
 URL.Proto urlProtocol(in string url) pure @safe nothrow {
-	if (assumeWontThrow(url.startsWith!"toLower(a) == b"("http:")))
-		return URL.Proto.HTTP;
-	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("https:")))
-		return URL.Proto.HTTPS;
-	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("ftp:")))
-		return URL.Proto.FTP;
-	else if (assumeWontThrow(url.startsWith!"toLower(a) == b"("data:")))
-		return URL.Proto.Data;
-	else if (url.startsWith("//"))
+	if (auto protoSplit = url.findSplit("/")[0].findSplit(":")) {
+		switch (assumeWontThrow(protoSplit[0].toLower)) {
+			case "http":
+				return URL.Proto.HTTP;
+			case "https":
+				return URL.Proto.HTTPS;
+			case "ftp":
+				return URL.Proto.FTP;
+			case "data":
+				return URL.Proto.Data;
+			default:
+				return URL.Proto.Unknown;
+		}
+	} else if (url.startsWith("//")) {
 		return URL.Proto.Same;
-	else if (url.startsWith("/"))
-		return URL.Proto.None;
-	else if (url.startsWith("."))
-		return URL.Proto.None;
-	return URL.Proto.Unknown;
+	}
+	return URL.Proto.None;
 }
 ///
 @safe pure nothrow unittest {
@@ -239,40 +242,17 @@ struct URL {
 	 + Params:
 	 +  urlB = URL to transform
 	 +/
-	URL absoluteURL(in URL urlB) const @safe pure nothrow {
-		Proto ProtoCopy = protocol;
-		Proto ProtoCopyB = urlB.protocol;
-		immutable HostnameCopy = hostname;
-		immutable PathCopy = path;
-		const ParamsCopy = params;
-		immutable HostnameCopyB = urlB.hostname;
-		immutable PathCopyB = urlB.path;
-		const ParamsCopyB = urlB.params;
-		if (urlB == const(URL).init) {
-			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
+	URL absoluteURL(in URL urlB) const @safe pure {
+		if ((this == urlB) || (urlB == const(URL).init)) {
+			return URL(protocol, hostname, path, params);
 		}
-		if (this == urlB) {
-			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		}
-		if ((urlB.protocol == Proto.HTTP) || (urlB.protocol == Proto.HTTPS)) {
-			return URL(ProtoCopyB, HostnameCopyB, PathCopyB, ParamsCopyB);
-		}
-		if ((urlB.protocol == Proto.None) && (urlB.path == ".")) {
-			return URL(ProtoCopy, HostnameCopy, PathCopy, ParamsCopy);
-		}
-		if ((urlB.protocol == Proto.None) && (urlB.path == "..")) {
-			return URL(ProtoCopy, HostnameCopy, PathCopy.split("/")[0..$-1].join("/"), ParamsCopy);
-		}
-		if (urlB.protocol == Proto.None) {
-			return URL(ProtoCopy, HostnameCopy, PathCopyB, ParamsCopyB);
-		}
-		if (urlB.protocol == Proto.Same) {
-			return URL(ProtoCopy, urlB.hostname, PathCopyB, ParamsCopyB);
-		}
-		return URL(ProtoCopy, HostnameCopy, PathCopy ~ "/" ~ urlB.path, ParamsCopy);
+		Proto newProto = urlB.protocol.among(Proto.None, Proto.Same) ? protocol : urlB.protocol;
+		immutable newHostname = (urlB.hostname != "") ? urlB.hostname : hostname;
+		immutable newPath = chainURL("/", path, urlB.path).asNormalizedURL.array;
+		return URL(newProto, newHostname, newPath, params).withReplacedParams(urlB.params);
 	}
 	///ditto
-	URL absoluteURL(string urlB) const pure @safe nothrow {
+	URL absoluteURL(string urlB) const pure @safe {
 		return absoluteURL(URL(urlB));
 	}
 	///ditto
@@ -368,6 +348,11 @@ struct URL {
 	assert(URL("http://url.example/blah().file").text() == "http://url.example/blah%28%29.file");
 	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).text() == "http://url.example/?a=b");
 	assert(URL("https://example.com").absoluteURL("/it%E2%80%99s").text() == "https://example.com/it%E2%80%99s");
+	with(URL("something")) {
+		assert(protocol == Proto.None);
+		assert(hostname == "");
+		assert(path == "something");
+	}
 }
 @safe pure unittest {
 	struct Test {
@@ -382,10 +367,10 @@ struct URL {
 @safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
 	assert(URL("https://url.example").protocol == URL.Proto.HTTPS, "HTTPS detection failure");
-	assert(URL("url.example").protocol == URL.Proto.Unknown, "No-protocol detection failure");
+	assert(URL("url.example").protocol == URL.Proto.None, "No-protocol detection failure");
 	assert(URL("HTTP://URL.EXAMPLE").protocol == URL.Proto.HTTP, "HTTP caps detection failure");
 	assert(URL("HTTPS://URL.EXAMPLE").protocol == URL.Proto.HTTPS, "HTTPS caps detection failure");
-	assert(URL("URL.EXAMPLE").protocol == URL.Proto.Unknown, "No-protocol caps detection failure");
+	assert(URL("URL.EXAMPLE").protocol == URL.Proto.None, "No-protocol caps detection failure");
 	assert(URL("http:url.example").protocol == URL.Proto.HTTP);
 	assert(URL("/something?a=b:d").protocol == URL.Proto.None);
 }
@@ -393,28 +378,27 @@ struct URL {
 	assert(URL("http://url.example").hostname == "url.example", "HTTP hostname detection failure");
 	assert(URL("https://url.example").hostname == "url.example", "HTTPS hostname detection failure");
 	assert(URL("http:/url.example").hostname == "url.example", "HTTP hostname (missing double slash) detection failure");
-	assert(URL("url.example").hostname == "url.example", "No-protocol hostname detection failure");
 	assert(URL("http://url.example/dir").hostname == "url.example", "HTTP hostname detection failure");
 	assert(URL("HTTP://URL.EXAMPLE").hostname == "url.example", "HTTP caps hostname detection failure");
 	assert(URL("HTTPS://URL.EXAMPLE").hostname == "url.example", "HTTPS caps hostname detection failure");
-	assert(URL("URL.EXAMPLE").hostname == "url.example", "No-protocol caps hostname detection failure");
 	assert(URL("http://URL.EXAMPLE/DIR").hostname == "url.example", "path+caps hostname detection failure");
 	assert(URL("HTTP:url.example").hostname == "url.example");
 	assert(URL("/something?a=b:d").hostname == "");
 }
 @safe pure unittest {
-	assert(URL("http://url.example").absoluteURL("https://url.example").text() == "https://url.example", "Switching protocol (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).text() == "https://url.example", "Switching protocol (struct) failure");
+	assert(URL("http://url.example").absoluteURL("https://url.example").text() == "https://url.example/", "Switching protocol (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).text() == "https://url.example/", "Switching protocol (struct) failure");
 	assert(URL("http://url.example").absoluteURL("http://url.example").text() == "http://url.example", "Identical URL (string) failure");
 	assert(URL("http://url.example").absoluteURL(URL("http://url.example")).text() == "http://url.example", "Identical URL (struct) failure");
 	assert(URL("http://url.example").absoluteURL("/something").text() == "http://url.example/something", "Root-relative URL (string) failure");
 	assert(URL("http://url.example").absoluteURL(URL("/something")).text() == "http://url.example/something", "Root-relative URL (struct) failure");
-	assert(URL("http://url.example").absoluteURL("//different.example").text() == "http://different.example", "Same-protocol relative URL (string) failure");
-	assert(URL("http://url.example").absoluteURL(URL("//different.example")).text() == "http://different.example", "Same-protocol relative URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL("//different.example").text() == "http://different.example/", "Same-protocol relative URL (string) failure");
+	assert(URL("http://url.example").absoluteURL(URL("//different.example")).text() == "http://different.example/", "Same-protocol relative URL (struct) failure");
+	assert(URL("http://url.example").absoluteURL("..").text() == "http://url.example/", "Relative parent URL (string) failure");
 	assert(URL("http://url.example/dir").absoluteURL(".").text() == "http://url.example/dir", "Dot URL (string) failure");
 	assert(URL("http://url.example/dir").absoluteURL(URL(".")).text() == "http://url.example/dir", "Dot URL (struct) failure");
-	assert(URL("http://url.example/dir").absoluteURL("..").text() == "http://url.example", "Relative parent URL (string) failure");
-	assert(URL("http://url.example/dir").absoluteURL(URL("..")).text() == "http://url.example", "Relative parent URL (struct) failure");
+	assert(URL("http://url.example/dir").absoluteURL("..").text() == "http://url.example/", "Relative parent URL (string) failure");
+	assert(URL("http://url.example/dir").absoluteURL(URL("..")).text() == "http://url.example/", "Relative parent URL (struct) failure");
 	assert(URL("http://url.example/dir").absoluteURL("/different").text() == "http://url.example/different", "Root-relative (w/dir) URL (string) failure");
 	assert(URL("http://url.example/dir").absoluteURL(URL("/different")).text() == "http://url.example/different", "Root-relative (w/dir) URL (struct) failure");
 	assert(URL("http://url.example/dir").absoluteURL("different").text() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (string) failure");
@@ -446,4 +430,307 @@ struct URL {
 @safe pure unittest {
 	assert(URL("http://url.example/?hello=1;hello2=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1"], "hello2":["2"]], "URIArguments (semicolons): key failure");
 	assert(URL("http://url.example/?hello=1;hello=2", Flag!"SemicolonQueryParameters".yes).params == ["hello":["1", "2"]], "URIArguments (semicolons): Duplicate key failure");
+}
+
+
+// The following code has been shamelessly borrowed from phobos's std.path
+// See: https://github.com/dlang/phobos
+
+private auto chainURL(R1, R2, Ranges...)(R1 r1, R2 r2, Ranges ranges)
+if ((isRandomAccessRange!R1 && hasSlicing!R1 && hasLength!R1 && isSomeChar!(ElementType!R1) ||
+	isNarrowString!R1 &&
+	!isConvertibleToString!R1) &&
+	(isRandomAccessRange!R2 && hasSlicing!R2 && hasLength!R2 && isSomeChar!(ElementType!R2) ||
+	isNarrowString!R2 &&
+	!isConvertibleToString!R2) &&
+	(Ranges.length == 0 || is(typeof(chainURL(r2, ranges))))
+	)
+{
+	static bool isRooted(R2 path) {
+		return (path.length >= 1 && path[0] == '/');
+	}
+	static if (Ranges.length) {
+		return chainURL(chainURL(r1, r2), ranges);
+	} else {
+		import std.range : only, chain;
+		import std.utf : byUTF;
+
+		alias CR = Unqual!(ElementEncodingType!R1);
+		auto sep = only(CR('/'));
+		bool usesep = false;
+
+		auto pos = r1.length;
+
+		if (pos) {
+			if (isRooted(r2)) {
+				pos = 0;
+			} else if (!isURLSeparator(r1[pos - 1])) {
+				usesep = true;
+			}
+		}
+		if (!usesep) {
+			sep.popFront();
+		}
+		return chain(r1[0 .. pos].byUTF!CR, sep, r2.byUTF!CR);
+	}
+}
+
+private auto asNormalizedURL(R)(return scope R path)
+if (isSomeChar!(ElementEncodingType!R) &&
+	(isRandomAccessRange!R && hasSlicing!R && hasLength!R || isNarrowString!R) &&
+	!isConvertibleToString!R)
+{
+	import std.algorithm.searching : startsWith;
+	alias C = Unqual!(ElementEncodingType!R);
+	alias S = typeof(path[0 .. 0]);
+
+	static struct Result {
+		@property bool empty() {
+			return c == c.init;
+		}
+
+		@property C front() {
+			return c;
+		}
+
+		void popFront() {
+			C lastc = c;
+			c = c.init;
+			if (!element.empty) {
+				c = getElement0();
+				return;
+			}
+		  L1:
+			while (1) {
+				if (elements.empty) {
+					element = element[0 .. 0];
+					return;
+				}
+				element = elements.front;
+				elements.popFront();
+				if (isDot(element) || (rooted && isDotDot(element))) {
+					continue;
+				}
+
+				if (rooted || !isDotDot(element)) {
+					int n = 1;
+					auto elements2 = elements.save;
+					while (!elements2.empty) {
+						auto e = elements2.front;
+						elements2.popFront();
+						if (isDot(e)) {
+							continue;
+						}
+						if (isDotDot(e)) {
+							--n;
+							if (n == 0) {
+								elements = elements2;
+								element = element[0 .. 0];
+								continue L1;
+							}
+						}
+						else {
+							++n;
+						}
+					}
+				}
+				break;
+			}
+
+			if (lastc == '/' || lastc == lastc.init) {
+				c = getElement0();
+			} else {
+				c = '/';
+			}
+		}
+
+		static if (isForwardRange!R) {
+			@property auto save() {
+				auto result = this;
+				result.element = element.save;
+				result.elements = elements.save;
+				return result;
+			}
+		}
+
+	  private:
+		this(R path) {
+			element = rootName(path);
+			auto i = element.length;
+			while (i < path.length && isURLSeparator(path[i])) {
+				++i;
+			}
+			rooted = i > 0;
+			elements = urlSplitter(path[i .. $]);
+			popFront();
+			if (c == c.init && path.length) {
+				c = C('.');
+			}
+		}
+
+		C getElement0() {
+			static if (isNarrowString!S)  { // avoid autodecode
+				C c = element[0];
+				element = element[1 .. $];
+			} else {
+				C c = element.front;
+				element.popFront();
+			}
+			return c;
+		}
+
+		// See if elem is "."
+		static bool isDot(S elem) {
+			return elem.length == 1 && elem[0] == '.';
+		}
+
+		// See if elem is ".."
+		static bool isDotDot(S elem) {
+			return elem.length == 2 && elem[0] == '.' && elem[1] == '.';
+		}
+
+		bool rooted;	// the path starts with a root directory
+		C c;
+		S element;
+		typeof(urlSplitter(path[0 .. 0])) elements;
+	}
+
+	return Result(path);
+}
+
+private auto urlSplitter(R)(R path)
+if ((isRandomAccessRange!R && hasSlicing!R ||
+	isNarrowString!R) &&
+	!isConvertibleToString!R)
+{
+	static struct PathSplitter {
+		@property bool empty() const {
+			return pe == 0;
+		}
+
+		@property R front() {
+			assert(!empty);
+			return _path[fs .. fe];
+		}
+
+		void popFront() {
+			assert(!empty);
+			if (ps == pe) {
+				if (fs == bs && fe == be) {
+					pe = 0;
+				} else {
+					fs = bs;
+					fe = be;
+				}
+			} else {
+				fs = ps;
+				fe = fs;
+				while (fe < pe && !isURLSeparator(_path[fe])) {
+					++fe;
+				}
+				ps = ltrim(fe, pe);
+			}
+		}
+
+		@property R back() {
+			assert(!empty);
+			return _path[bs .. be];
+		}
+
+		void popBack() {
+			assert(!empty);
+			if (ps == pe) {
+				if (fs == bs && fe == be) {
+					pe = 0;
+				}
+				else {
+					bs = fs;
+					be = fe;
+				}
+			}
+			else {
+				bs = pe;
+				be = bs;
+				while (bs > ps && !isURLSeparator(_path[bs - 1])) {
+					--bs;
+				}
+				pe = rtrim(ps, bs);
+			}
+		}
+		@property auto save() { return this; }
+
+
+	private:
+		R _path;
+		size_t ps, pe;
+		size_t fs, fe;
+		size_t bs, be;
+
+		this(R p) {
+			if (p.empty) {
+				pe = 0;
+				return;
+			}
+			_path = p;
+
+			ps = 0;
+			pe = _path.length;
+
+			// If path is rooted, first element is special
+			if (_path.length >= 1 && isURLSeparator(_path[0])) {
+				fs = 0;
+				fe = 1;
+				ps = ltrim(fe, pe);
+			} else {
+				popFront();
+			}
+
+			if (ps == pe) {
+				bs = fs;
+				be = fe;
+			} else {
+				pe = rtrim(ps, pe);
+				popBack();
+			}
+		}
+
+		size_t ltrim(size_t s, size_t e) {
+			while (s < e && isURLSeparator(_path[s])) {
+				++s;
+			}
+			return s;
+		}
+
+		size_t rtrim(size_t s, size_t e) {
+			while (s < e && isURLSeparator(_path[e - 1])) {
+				--e;
+			}
+			return e;
+		}
+	}
+
+	return PathSplitter(path);
+}
+
+@safe pure unittest {
+	import std.array : array;
+	assert(chainURL("/", "example").asNormalizedURL.array == "/example");
+	assert(chainURL("/", "..").asNormalizedURL.array == "/");
+	assert(chainURL("/dir", "..").asNormalizedURL.array == "/");
+	assert(chainURL("/dir/dir2", "..").asNormalizedURL.array == "/dir");
+	assert(chainURL("/dir/dir2", ".").asNormalizedURL.array == "/dir/dir2");
+}
+
+private auto rootName(R)(R path)
+{
+	if (!path.empty && isURLSeparator(path[0])) {
+		return path[0 .. 1];
+	}
+	return path[0 .. 0];
+}
+
+private bool isURLSeparator(dchar c)  @safe pure nothrow @nogc
+{
+    if (c == '/') return true;
+    return false;
 }
