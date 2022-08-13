@@ -425,10 +425,10 @@ struct URL {
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
 	assert(URL("http://url.example/?hello=world").params == ["hello":["world"]], "URIArguments: Simple test failure");
-	assert(URL("http://url.example/?hello=world+butt").params == ["hello":["world butt"]], "URIArguments: Plus as space in value failure");
-	assert(URL("http://url.example/?hello+butt=world").params == ["hello butt":["world"]], "URIArguments: Plus as space in key failure");
-	assert(URL("http://url.example/?hello=world%20butt").params == ["hello":["world butt"]], "URIArguments: URL decoding in value failure");
-	assert(URL("http://url.example/?hello%20butt=world").params == ["hello butt":["world"]], "URIArguments: URL decoding in key failure");
+	assert(URL("http://url.example/?hello=world+bar").params == ["hello":["world bar"]], "URIArguments: Plus as space in value failure");
+	assert(URL("http://url.example/?hello+bar=world").params == ["hello bar":["world"]], "URIArguments: Plus as space in key failure");
+	assert(URL("http://url.example/?hello=world%20bar").params == ["hello":["world bar"]], "URIArguments: URL decoding in value failure");
+	assert(URL("http://url.example/?hello%20bar=world").params == ["hello bar":["world"]], "URIArguments: URL decoding in key failure");
 	assert(URL("http://url.example/?hello").params == ["hello":[""]], "URIArguments: Key only failure");
 	assert(URL("http://url.example/?hello=").params == ["hello":[""]], "URIArguments: Empty value failure");
 	assert(URL("http://url.example/?hello+").params == ["hello ":[""]], "URIArguments: Key only with plus sign failure");
