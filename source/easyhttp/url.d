@@ -367,6 +367,7 @@ struct URL {
 	assert(URL("http://url.example/?a=b&&").text() == "http://url.example/?a=b");
 	assert(URL("http://url.example/blah().file").text() == "http://url.example/blah%28%29.file");
 	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).text() == "http://url.example/?a=b");
+	assert(URL("https://example.com").absoluteURL("/it%E2%80%99s").text() == "https://example.com/it%E2%80%99s");
 }
 @safe pure unittest {
 	struct Test {

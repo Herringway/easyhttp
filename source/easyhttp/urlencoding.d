@@ -254,10 +254,19 @@ package string encodeComponentSafe(string input) @safe pure {
 	assert(encodeComponentSafe("Helloã") == "Hello%C3%A3");
 }
 package string encodePathComponentSafe(string input) @safe pure {
+	import std.utf : byCodeUnit;
+	static bool isHexadecimal(char character) {
+		if (((character.toLower >= 'a') && (character.toLower <= 'f')) || ((character.toLower >= '0') && (character.toLower <= '9'))) {
+			return true;
+		}
+		return false;
+	}
 	string output;
 	output.reserve(input.length*3);
-	foreach (character; input) {
+	foreach (idx, char character; input) {
 		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '/')) {
+			output ~= character;
+		} else if ((character == '%') && (idx + 2 < input.length) && input[idx + 1 .. idx + 3].byCodeUnit.all!isHexadecimal) {
 			output ~= character;
 		} else {
 			output ~= format!"%%%02X"(character);
@@ -272,6 +281,8 @@ package string encodePathComponentSafe(string input) @safe pure {
 	assert(encodePathComponentSafe("/hello/world") == "/hello/world");
 	assert(encodePathComponentSafe("Hello ") == "Hello%20");
 	assert(encodePathComponentSafe("Helloã") == "Hello%C3%A3");
+	assert(encodePathComponentSafe("Hello%20") == "Hello%20");
+	assert(encodePathComponentSafe("Hello%") == "Hello%25");
 }
 package string decodeComponentSafe(string input) @safe pure {
 	import std.utf : byCodeUnit;
