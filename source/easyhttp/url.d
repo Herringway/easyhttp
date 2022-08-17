@@ -248,7 +248,7 @@ struct URL {
 		}
 		Proto newProto = urlB.protocol.among(Proto.None, Proto.Same) ? protocol : urlB.protocol;
 		immutable newHostname = (urlB.hostname != "") ? urlB.hostname : hostname;
-		immutable newPath = chainURL("/", path, urlB.path).asNormalizedURL.array;
+		immutable newPath = chainURL("/", path, urlB.path).asNormalizedURL.chain(only('/').take((urlB.path.length > 1) && urlB.path.endsWith('/'))).array;
 		return URL(newProto, newHostname, newPath, params).withReplacedParams(urlB.params);
 	}
 	///ditto
@@ -353,6 +353,8 @@ struct URL {
 		assert(hostname == "");
 		assert(path == "something");
 	}
+	assert(URL("http://url.example/dir/").text() == "http://url.example/dir/", "Trailing slash");
+	assert(URL("http://url.example/").absoluteURL("/dir/").text() == "http://url.example/dir/", "Trailing slash");
 }
 @safe pure unittest {
 	struct Test {
