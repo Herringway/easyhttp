@@ -451,7 +451,7 @@ struct Request {
 								enforce(ignoreSizeMismatch || (response._content.length == value.to!size_t), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, value.to!size_t)));
 								break;
 							case "location":
-								tmpURL = value;
+								tmpURL = easyhttp.url.URL(tmpURL).absoluteURL(value).text;
 								break;
 							default: break;
 						}
