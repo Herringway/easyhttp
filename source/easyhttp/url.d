@@ -157,7 +157,7 @@ struct URL {
 			if (this.protocol.among(Proto.Unknown, Proto.None)) {
 				this.path = splitComponents.join("/");
 			} else {
-				this.path = splitComponents.drop(3).join("/");
+				this.path = only("").chain(splitComponents.drop(3)).join("/");
 			}
 			auto existingParameters = this.path.find("?");
 			if (existingParameters.length > 0) {
@@ -336,7 +336,7 @@ struct URL {
 }
 @safe pure unittest {
 	assert(URL("http://url.example/?a=b#hello").text() == "http://url.example/?a=b#hello", "Simple complete URL failure");
-	assert(URL("http://url.example/#hello").text() == "http://url.example#hello", "Simple URL with fragment failure");
+	assert(URL("http://url.example/#hello").text() == "http://url.example/#hello", "Simple URL with fragment failure");
 	assert(URL("http://url.example#hello").text() == "http://url.example#hello", "Simple URL with fragment, no trailing / on hostname failure");
 	assert(URL("https://url.example/?a=b").text() == "https://url.example/?a=b", "Simple complete URL (https) failure");
 	assert(URL("http://url.example").text() == "http://url.example", "Simple complete URL (no ending slash) failure");
@@ -388,6 +388,9 @@ struct URL {
 	assert(URL("/something?a=b:d").hostname == "");
 }
 @safe pure unittest {
+	assert(URL("http://url.example/path").path == "/path", "URL path failure");
+}
+@safe pure unittest {
 	assert(URL("http://url.example").absoluteURL("https://url.example").text() == "https://url.example/", "Switching protocol (string) failure");
 	assert(URL("http://url.example").absoluteURL(URL("https://url.example")).text() == "https://url.example/", "Switching protocol (struct) failure");
 	assert(URL("http://url.example").absoluteURL("http://url.example").text() == "http://url.example", "Identical URL (string) failure");
@@ -408,6 +411,7 @@ struct URL {
 	assert(URL("http://url.example").absoluteURL!"/%s"("test").text() == "http://url.example/test");
 	assert(URL("http://url.example").absoluteURL!"/%s"(5).text() == "http://url.example/5");
 	assert(URL("http://url.example/").absoluteURL("/", ["hello": "world"]).text == "http://url.example/?hello=world");
+	assert(URL("http://url.example/somewhere/").absoluteURL("http://url.example/somewhere").text == "http://url.example/somewhere");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
@@ -425,7 +429,7 @@ struct URL {
 	auto url = URL("http://url.example");
 	url.params["hello"] = ["+"];
 	assert(url.text == "http://url.example/?hello=%2B");
-	assert(format!"%n"(URL("http://url.example/?hello")) == "http://url.example");
+	assert(format!"%n"(URL("http://url.example/?hello")) == "http://url.example/");
 	assert(format!"%s"(URL("http://url.example/?hello")) == "http://url.example/?hello");
 	assert(URL("http://url.example/?hello=world#fragment").params == ["hello":["world"]], "URIArguments: Simple test with fragment failure");
 }
