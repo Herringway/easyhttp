@@ -44,6 +44,8 @@ struct PrettyDownloadManager {
 			progressTracker.updateDisplay();
 		};
 		manager.download();
+		progressTracker.clear();
+		loaded = false;
 	}
 	private void prepareBars() @safe pure {
 		import std.conv : text;

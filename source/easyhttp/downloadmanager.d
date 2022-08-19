@@ -179,6 +179,7 @@ struct RequestQueue {
 				}
 			);
 		}
+		queue = [];
 	}
 	private void updateProgress(in ulong id, in QueueItemProgress progress) const @safe {
 		if (onProgress) {
