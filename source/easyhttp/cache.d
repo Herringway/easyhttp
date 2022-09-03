@@ -16,7 +16,7 @@ import easyhttp.url;
 struct DownloadCache {
 	string basePath;
 	uint retries = 1;
-	private RequestQueue downloader;
+	package RequestQueue downloader;
 
 	this(string path) @safe
 	in(path != "", "Path cannot be blank")
@@ -86,6 +86,16 @@ struct DownloadCache {
 		download.destPath = dest;
 		downloader.add(download);
 	}
+
+	void queue(QueuedRequest req) @safe {
+		import std.exception : enforce;
+		enforce(!req.destPath, "Download path already set");
+		req.destPath = getFilePath(req.request.url).toUTF8;
+		if (req.destPath.exists) {
+			return;
+		}
+		downloader.add(req);
+	}
 	void prepare() @safe pure {
 		downloader.prepare();
 	}
@@ -124,6 +134,12 @@ struct DownloadCache {
 	}
 	static auto systemCache() @safe {
 		return DownloadCache(settings.systemCachePath);
+	}
+	bool pathAlreadyInQueue(const string path) @safe nothrow {
+		return downloader.pathAlreadyInQueue(path);
+	}
+	void onProgress(typeof(downloader.onProgress) dg) @safe nothrow {
+		downloader.onProgress = dg;
 	}
 }
 
