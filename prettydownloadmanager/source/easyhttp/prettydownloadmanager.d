@@ -1,7 +1,9 @@
 module easyhttp.prettydownloadmanager;
 
 import progresso.progresstracker;
+import easyhttp.cache;
 import easyhttp.downloadmanager;
+import easyhttp.http;
 
 import std.experimental.logger;
 
@@ -79,5 +81,70 @@ struct PrettyDownloadManager {
 			download();
 		//}
 	}
+}
 
+struct PrettyDownloadCache {
+	private DownloadCache manager;
+	private ProgressTracker progressTracker;
+	private bool loaded;
+
+	this(string path) @safe {
+		manager = DownloadCache(path);
+	}
+	private this(DownloadCache cache) @safe pure {
+		manager = cache;
+	}
+	void showTotal() nothrow @safe pure {
+		progressTracker.showTotal = true;
+		progressTracker.totalItemsOnly = true;
+	}
+	bool pathAlreadyInQueue(const string path) nothrow @safe {
+		return manager.pathAlreadyInQueue(path);
+	}
+	void add(Request request) @safe {
+		manager.queue(request);
+	}
+	void add(QueuedRequest request) @safe {
+		manager.queue(request);
+	}
+	void prepare() @safe pure {
+		manager.prepare();
+		prepareBars();
+	}
+	void download() @system {
+		prepareBars();
+		manager.onProgress = (request, queueDetails, progress) @safe {
+			import std.conv : text;
+			if (progress.state == QueueItemState.starting) {
+				progressTracker.setItemActive(queueDetails.ID);
+			}
+			progressTracker.setItemMaximum(queueDetails.ID, progress.size);
+			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
+			if (progress.state == QueueItemState.error) {
+				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+			} else {
+				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
+			}
+			if (progress.state == QueueItemState.complete) {
+				progressTracker.completeItem(queueDetails.ID);
+			}
+			progressTracker.updateDisplay();
+		};
+		manager.download();
+		progressTracker.clear();
+		loaded = false;
+	}
+	static PrettyDownloadCache systemCache() @safe {
+		return PrettyDownloadCache(DownloadCache.systemCache);
+	}
+	private void prepareBars() @safe pure {
+		import std.conv : text;
+		if (!loaded) {
+			foreach (id, request; manager.downloader.queue) {
+				progressTracker.addNewItem(id);
+				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
+			}
+			loaded = true;
+		}
+	}
 }
