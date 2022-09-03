@@ -204,9 +204,6 @@ struct URL {
 		}
 		return url;
 	}
-	deprecated URL withParams(T)(T inParams) const if (isURLEncodable!T) {
-		return withReplacedParams(inParams);
-	}
 	/++
 	 + Returns a new URL with the specified set of parameters added.
 	 +/

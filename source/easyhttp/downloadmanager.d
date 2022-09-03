@@ -10,13 +10,11 @@ import std.path;
 import std.range;
 import std.variant;
 
-deprecated("Use ShouldContinue") alias ShouldDownload = ShouldContinue;
 enum ShouldContinue {
 	no = 0,
 	yes = 1,
 }
 
-deprecated("Use QueuedRequest") alias DownloadRequest = QueuedRequest;
 struct QueuedRequest {
 	Request request;
 	string destPath;
@@ -32,12 +30,10 @@ struct QueueDetails {
 	ulong ID;
 	ulong count;
 }
-deprecated("Use QueueError") alias DownloadError = QueueError;
 struct QueueError {
 	size_t ID;
 	string msg;
 }
-deprecated("Use QueueItem") alias QueuedDownload = QueueItem;
 struct QueueItem {
 	size_t ID;
 	Request request;
@@ -46,7 +42,6 @@ struct QueueItem {
 	size_t retries;
 }
 
-deprecated("Use QueueResult") alias DownloadResult = QueueResult;
 struct QueueResult {
 	Response response;
 	string path;
@@ -55,7 +50,6 @@ struct QueueResult {
 	QueueError error;
 }
 
-deprecated("Use QueueItemState") alias DownloadState = QueueItemState;
 enum QueueItemState {
 	waiting,
 	downloading,
@@ -65,7 +59,6 @@ enum QueueItemState {
 	error
 }
 
-deprecated("Use QueueItemProgress") alias DownloadProgress = QueueItemProgress;
 struct QueueItemProgress {
 	QueueItemState state;
 	size_t downloaded;
@@ -95,8 +88,6 @@ struct QueueItemProgress {
 		}
 	}
 }
-
-deprecated("Use RequestQueue instead") alias DownloadManager = RequestQueue;
 
 struct RequestQueue {
 	uint queueCount = 4;
