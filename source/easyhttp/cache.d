@@ -92,7 +92,10 @@ struct DownloadCache {
 		enforce(!req.destPath, "Download path already set");
 		req.destPath = getFilePath(req.request.url).toUTF8;
 		if (req.destPath.exists) {
-			return;
+			if (req.postDownload is null) {
+				return;
+			}
+			req.skipDownload = true;
 		}
 		downloader.add(req);
 	}

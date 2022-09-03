@@ -23,6 +23,7 @@ struct QueuedRequest {
 	size_t retries = 1;
 	FileExistsAction fileExistsAction;
 	string label;
+	bool skipDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
@@ -154,11 +155,17 @@ struct RequestQueue {
 				(bool isReady, Tid child) {
 					while (id < queue.length) {
 						if (preDownload(id) == ShouldContinue.yes) {
-							updateProgress(id, QueueItemProgress(QueueItemState.starting));
-							assert(!save || (queue[id].destPath != ""));
-							send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
-							id++;
-							return;
+							if (queue[id].skipDownload) {
+								updateProgress(id, QueueItemProgress(QueueItemState.starting));
+								postDownload(id, QueueResult.init);
+								updateProgress(id, QueueItemProgress(QueueItemState.complete, 0, 0));
+							} else {
+								updateProgress(id, QueueItemProgress(QueueItemState.starting));
+								assert(!save || (queue[id].destPath != ""));
+								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
+								id++;
+								return;
+							}
 						} else {
 							updateProgress(id, QueueItemProgress(QueueItemState.skipping));
 						}
