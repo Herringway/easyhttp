@@ -131,6 +131,7 @@ struct PrettyDownloadCache {
 			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
 				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+				progressTracker.completeItem(queueDetails.ID);
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
