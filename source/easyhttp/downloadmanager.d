@@ -103,7 +103,7 @@ struct RequestQueue {
 		return queue.map!(x => x.destPath).canFind(path);
 	}
 	size_t add(const QueuedRequest request) nothrow @safe
-		in((request.destPath == "") || request.destPath.isValidPath, "Invalid path: "~request.destPath)
+		in((request.destPath == "") || request.destPath.isValidPath, "Invalid path: '"~request.destPath~"'")
 	{
 		queue ~= request;
 		return queue.length - 1;
