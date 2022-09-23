@@ -49,6 +49,15 @@ struct PrettyDownloadManager {
 		progressTracker.clear();
 		loaded = false;
 	}
+	void preDownloadFunction(typeof(manager.preDownloadFunction) dg) @safe {
+		manager.preDownloadFunction = dg;
+	}
+	void postDownloadFunction(typeof(manager.postDownloadFunction) dg) @safe {
+		manager.postDownloadFunction = dg;
+	}
+	void onError(typeof(manager.onError) dg) @safe {
+		manager.onError = dg;
+	}
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
@@ -113,7 +122,7 @@ struct PrettyDownloadCache {
 	}
 	void download() @system {
 		prepareBars();
-		manager.onProgress = (request, queueDetails, progress) @safe {
+		manager.onProgress = (in QueuedRequest request, in QueueDetails queueDetails, in QueueItemProgress progress) @safe {
 			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.ID);
@@ -134,13 +143,25 @@ struct PrettyDownloadCache {
 		progressTracker.clear();
 		loaded = false;
 	}
+	auto ref queueCount() @safe {
+		return manager.queueCount;
+	}
+	auto ref preDownloadFunction() @safe {
+		return manager.preDownloadFunction;
+	}
+	auto ref postDownloadFunction() @safe {
+		return manager.postDownloadFunction;
+	}
+	auto ref onError() @safe {
+		return manager.onError;
+	}
 	static PrettyDownloadCache systemCache() @safe {
 		return PrettyDownloadCache(DownloadCache.systemCache);
 	}
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
-			foreach (id, request; manager.downloader.queue) {
+			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
 				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
 			}

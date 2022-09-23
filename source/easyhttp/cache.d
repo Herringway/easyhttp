@@ -16,7 +16,7 @@ import easyhttp.url;
 struct DownloadCache {
 	string basePath;
 	uint retries = 1;
-	package RequestQueue downloader;
+	private RequestQueue downloader;
 
 	this(string path) @safe
 	in(path != "", "Path cannot be blank")
@@ -141,8 +141,23 @@ struct DownloadCache {
 	bool pathAlreadyInQueue(const string path) @safe nothrow {
 		return downloader.pathAlreadyInQueue(path);
 	}
-	void onProgress(typeof(downloader.onProgress) dg) @safe nothrow {
-		downloader.onProgress = dg;
+	auto ref queueCount() @safe nothrow {
+		return downloader.queueCount;
+	}
+	auto ref onProgress() @safe nothrow {
+		return downloader.onProgress;
+	}
+	auto ref preDownloadFunction() @safe {
+		return downloader.preDownloadFunction;
+	}
+	auto ref postDownloadFunction() @safe {
+		return downloader.postDownloadFunction;
+	}
+	auto ref onError() @safe {
+		return downloader.onError;
+	}
+	package const queue() @safe pure nothrow {
+		return downloader.queue;
 	}
 }
 
