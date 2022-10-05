@@ -58,6 +58,9 @@ struct PrettyDownloadManager {
 	void onError(typeof(manager.onError) dg) @safe {
 		manager.onError = dg;
 	}
+	auto ref queueCount() @safe {
+		return manager.queueCount;
+	}
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
