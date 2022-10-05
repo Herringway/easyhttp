@@ -127,6 +127,7 @@ struct PrettyDownloadCache {
 		prepareBars();
 		manager.onProgress = (in QueuedRequest request, in QueueDetails queueDetails, in QueueItemProgress progress) @safe {
 			import std.conv : text;
+			import std.algorithm.comparison : among;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.ID);
 			}
@@ -138,7 +139,7 @@ struct PrettyDownloadCache {
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
-			if (progress.state == QueueItemState.complete) {
+			if (progress.state.among(QueueItemState.complete, QueueItemState.skipping)) {
 				progressTracker.completeItem(queueDetails.ID);
 			}
 			progressTracker.updateDisplay();
