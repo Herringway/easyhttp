@@ -13,6 +13,7 @@ import std.variant;
 enum ShouldContinue {
 	no = 0,
 	yes = 1,
+	error = 2,
 }
 
 struct QueuedRequest {
@@ -23,8 +24,9 @@ struct QueuedRequest {
 	string label;
 	bool skipDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
-	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
+	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
+	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 }
 struct QueueDetails {
@@ -94,6 +96,7 @@ struct RequestQueue {
 	uint queueCount = 4;
 	package const(QueuedRequest)[] queue;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
+	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
@@ -166,8 +169,11 @@ struct RequestQueue {
 					send(child, true);
 				},
 				(immutable size_t successID, immutable QueueResult result) {
-					postDownload(successID, result);
-					updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
+					if (postDownload(successID, result) == ShouldContinue.yes) {
+						updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
+					} else {
+						updateProgress(successID, QueueItemProgress(QueueItemState.error));
+					}
 				},
 				(QueueError error) {
 					errorOccurred(error.ID, error);
@@ -187,13 +193,25 @@ struct RequestQueue {
 			queue[id].onProgress(queue[id], QueueDetails(id, queue.length), progress);
 		}
 	}
-	private void postDownload(in ulong id, in QueueResult result) const @safe {
-		if (postDownloadFunction) {
-			postDownloadFunction(queue[id], result, QueueDetails(id, queue.length));
+	private ShouldContinue postDownload(in ulong id, in QueueResult queueResult) const @safe {
+		ShouldContinue result = ShouldContinue.yes;
+		if (postDownloadCheck) {
+			result = postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
 		}
-		if (queue[id].postDownload) {
-			queue[id].postDownload(queue[id], result, QueueDetails(id, queue.length));
+		if (result == ShouldContinue.yes) {
+			if(queue[id].postDownloadCheck) {
+				result = queue[id].postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
+			}
+			if (result == ShouldContinue.yes) {
+				if (postDownloadFunction) {
+					postDownloadFunction(queue[id], queueResult, QueueDetails(id, queue.length));
+				}
+				if (queue[id].postDownload) {
+					queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
+				}
+			}
 		}
+		return result;
 	}
 	private ShouldContinue preDownload(in ulong id) const @safe {
 		ShouldContinue result = ShouldContinue.yes;
