@@ -125,20 +125,20 @@ struct RequestQueue {
 	/++
 		Begin downloading queued items.
 	+/
-	void download() @system {
-		process(true);
+	void download(bool throwOnError = true) @system {
+		process(true, throwOnError);
 	}
 	/++
 		Begin executing queued requests.
 	+/
-	void perform() @system {
-		process(false);
+	void perform(bool throwOnError = true) @system {
+		process(false, throwOnError);
 	}
-	private void process(bool save) @system {
+	private void process(bool save, bool throwOnError) @system {
 		import std.range : empty, front, popFront;
 		auto downloaders = new Tid[](queueCount);
 		foreach (idx, ref downloader; downloaders) {
-			downloader = spawn(&downloadRoutine, save);
+			downloader = spawn(&downloadRoutine, save, throwOnError);
 			debug import std.format : format;
 			debug register(format!"downloader %s"(idx), downloader);
 		}
@@ -232,7 +232,7 @@ struct RequestQueue {
 		}
 	}
 }
-private void downloadRoutine(bool save) @system {
+private void downloadRoutine(bool save, bool throwOnError) @system {
 	bool finished;
 	while (!finished) {
 		send(ownerTid, true, thisTid);
@@ -242,15 +242,18 @@ private void downloadRoutine(bool save) @system {
 			},
 			(immutable QueueItem download) {
 				import std.algorithm.comparison : max;
+				import std.exception : enforce;
 				size_t attemptsLeft = max(1, download.retries);
 				do {
 					attemptsLeft--;
 					try {
 						if (save) {
 							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction);
+							enforce(!throwOnError || response.response.statusCode.isSuccessful, new StatusException(response.response.statusCode, download.request.url));
 							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft));
 						} else {
 							immutable response = download.request.perform();
+							enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, download.request.url));
 							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft));
 						}
 						break;

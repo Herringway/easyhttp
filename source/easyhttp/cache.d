@@ -103,11 +103,11 @@ struct DownloadCache {
 	void prepare() @safe pure {
 		downloader.prepare();
 	}
-	void download() @system {
-		downloader.download();
+	void download(bool throwOnError = true) @system {
+		downloader.download(throwOnError);
 	}
-	void perform() @system {
-		downloader.perform();
+	void perform(bool throwOnError = true) @system {
+		downloader.perform(throwOnError);
 	}
 
 	auto getFilePath(const URL url) const @safe {

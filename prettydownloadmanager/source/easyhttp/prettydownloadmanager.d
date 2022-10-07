@@ -26,7 +26,7 @@ struct PrettyDownloadManager {
 		manager.prepare();
 		prepareBars();
 	}
-	void download() @system {
+	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (request, queueDetails, progress) @safe {
 			import std.conv : text;
@@ -45,7 +45,7 @@ struct PrettyDownloadManager {
 			}
 			progressTracker.updateDisplay();
 		};
-		manager.download();
+		manager.download(throwOnError);
 		progressTracker.clear();
 		loaded = false;
 	}
@@ -123,7 +123,7 @@ struct PrettyDownloadCache {
 		manager.prepare();
 		prepareBars();
 	}
-	void download() @system {
+	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (in QueuedRequest request, in QueueDetails queueDetails, in QueueItemProgress progress) @safe {
 			import std.conv : text;
@@ -144,7 +144,7 @@ struct PrettyDownloadCache {
 			}
 			progressTracker.updateDisplay();
 		};
-		manager.download();
+		manager.download(throwOnError);
 		progressTracker.clear();
 		loaded = false;
 	}
