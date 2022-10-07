@@ -450,7 +450,9 @@ struct Request {
 									tracef("Invalid content-md5 string '%s' received, discarding", value);
 									continue;
 								}
-								enforce(response.md5 == md5, new HashException("MD5", response.md5, md5));
+								if (method != HTTPMethod.head) {
+									enforce(response.md5 == md5, new HashException("MD5", response.md5, md5));
+								}
 								break;
 							case "content-length":
 								enforce(ignoreSizeMismatch || (response._content.length == value.to!size_t), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, value.to!size_t)));
