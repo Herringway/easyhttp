@@ -140,6 +140,11 @@ enum HTTPStatus : ushort {
 	NotExtended = 510,
 	NetworkAuthenticationRequired = 511
 }
+
+bool isSuccessful(HTTPStatus status) @safe pure {
+	return (status >= HTTPStatus.OK) && (status < HTTPStatus.MultipleChoices);
+}
+
 enum OAuthMethod { header, queryString, form }
 struct Cookie {
 	string domain;

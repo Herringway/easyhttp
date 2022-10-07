@@ -60,7 +60,7 @@ struct DownloadCache {
 			retriesLeft--;
 			try {
 				auto resp = req.perform();
-				enforce((resp.statusCode >= HTTPStatus.OK) && (resp.statusCode < HTTPStatus.MultipleChoices), new StatusException(resp.statusCode, req.url));
+				enforce(resp.statusCode.isSuccessful, new StatusException(resp.statusCode, req.url));
 				auto data = resp.content!(immutable(ubyte)[]);
 				mkdirRecurse(path.dirName);
 				std.file.write(path, data);
