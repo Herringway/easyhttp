@@ -29,6 +29,7 @@ struct PrettyDownloadManager {
 	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (request, queueDetails, progress) @safe {
+			import std.algorithm.comparison : among;
 			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.ID);
@@ -40,7 +41,7 @@ struct PrettyDownloadManager {
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
-			if (progress.state == QueueItemState.complete) {
+			if (progress.state.among(QueueItemState.complete, QueueItemState.error)) {
 				progressTracker.completeItem(queueDetails.ID);
 			}
 			progressTracker.updateDisplay();
@@ -126,8 +127,8 @@ struct PrettyDownloadCache {
 	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (in QueuedRequest request, in QueueDetails queueDetails, in QueueItemProgress progress) @safe {
-			import std.conv : text;
 			import std.algorithm.comparison : among;
+			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.ID);
 			}
@@ -135,11 +136,10 @@ struct PrettyDownloadCache {
 			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
 				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
-				progressTracker.completeItem(queueDetails.ID);
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
-			if (progress.state.among(QueueItemState.complete, QueueItemState.skipping)) {
+			if (progress.state.among(QueueItemState.complete, QueueItemState.error, QueueItemState.skipping)) {
 				progressTracker.completeItem(queueDetails.ID);
 			}
 			progressTracker.updateDisplay();
