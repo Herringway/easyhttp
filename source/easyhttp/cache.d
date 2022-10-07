@@ -33,6 +33,7 @@ struct DownloadCache {
 	immutable(ubyte)[] get(const Request req, string path, bool refresh = false) const @safe {
 		import std.datetime.systime : SysTime;
 		import std.exception : enforce;
+		enforce(!path.exists || !path.isDir, "Cannot write to directory");
 		if (path.exists) {
 			tracef("%s (%s): found in cache", req.url, path);
 			bool fetch = false;
@@ -133,7 +134,11 @@ struct DownloadCache {
 			}
 		}
 		skipOver(urlPath, "/");
-		return fixPath(buildNormalizedPath(base, url.hostname, urlPath), InvalidCharHandling.replaceUnicode);
+		auto fixed = fixPath(buildNormalizedPath(base, url.hostname, urlPath), InvalidCharHandling.replaceUnicode).text;
+		if (fixed.exists && fixed.isDir) {
+			fixed = setExtension(fixed, "raw");
+		}
+		return fixed;
 	}
 	static auto systemCache() @safe {
 		return DownloadCache(settings.systemCachePath);
