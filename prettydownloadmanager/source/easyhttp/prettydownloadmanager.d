@@ -1,6 +1,6 @@
 module easyhttp.prettydownloadmanager;
 
-import progresso.progresstracker;
+import progresso;
 import easyhttp.cache;
 import easyhttp.downloadmanager;
 import easyhttp.http;
@@ -11,6 +11,7 @@ struct PrettyDownloadManager {
 	private RequestQueue manager;
 	private ProgressTracker progressTracker;
 	private bool loaded;
+	bool noColours;
 
 	void showTotal() nothrow @safe pure {
 		progressTracker.showTotal = true;
@@ -38,6 +39,9 @@ struct PrettyDownloadManager {
 			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
 				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+				if (!noColours) {
+					progressTracker.setItemColours(queueDetails.ID, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
+				}
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
@@ -68,6 +72,9 @@ struct PrettyDownloadManager {
 			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
 				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
+				if (!noColours) {
+					progressTracker.setItemColours(id, RGB(0, 255, 0), RGB(0, 0, 0), ColourMode.unchanging);
+				}
 			}
 			loaded = true;
 		}
@@ -100,6 +107,7 @@ struct PrettyDownloadCache {
 	private DownloadCache manager;
 	private ProgressTracker progressTracker;
 	private bool loaded;
+	bool noColours;
 
 	this(string path) @safe {
 		manager = DownloadCache(path);
@@ -136,6 +144,9 @@ struct PrettyDownloadCache {
 			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
 				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+				if (!noColours) {
+					progressTracker.setItemColours(queueDetails.ID, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
+				}
 			} else {
 				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
 			}
@@ -169,6 +180,9 @@ struct PrettyDownloadCache {
 			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
 				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
+				if (!noColours) {
+					progressTracker.setItemColours(id, RGB(0, 255, 0), RGB(0, 0, 0), ColourMode.unchanging);
+				}
 			}
 			loaded = true;
 		}
