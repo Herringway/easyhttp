@@ -508,9 +508,10 @@ struct Request {
 	 +  fullPath = default destination for the file to be saved
 	 +  overwrite = whether or not to overwrite existing files
 	 +/
-	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename) const @safe {
+	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true) const @safe {
 		SavedFileInformation output;
 		auto response = perform();
+		enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, url));
 		output.response = response;
 		if (fullPath.exists) {
 			final switch (fileExistsAction) {

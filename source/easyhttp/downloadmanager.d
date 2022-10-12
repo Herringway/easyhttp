@@ -248,8 +248,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					attemptsLeft--;
 					try {
 						if (save) {
-							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction);
-							enforce(!throwOnError || response.response.statusCode.isSuccessful, new StatusException(response.response.statusCode, download.request.url));
+							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError);
 							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft));
 						} else {
 							immutable response = download.request.perform();
