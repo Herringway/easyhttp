@@ -409,6 +409,7 @@ struct URL {
 	assert(URL("http://url.example").absoluteURL!"/%s"(5).text() == "http://url.example/5");
 	assert(URL("http://url.example/").absoluteURL("/", ["hello": "world"]).text == "http://url.example/?hello=world");
 	assert(URL("http://url.example/somewhere/").absoluteURL("http://url.example/somewhere").text == "http://url.example/somewhere");
+	assert(URL("http://url.example/somewhere").absoluteURL("?param=value").text == "http://url.example/somewhere?param=value");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
