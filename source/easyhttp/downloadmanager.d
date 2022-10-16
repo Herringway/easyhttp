@@ -247,8 +247,13 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 				import std.algorithm.comparison : max;
 				import std.exception : enforce;
 				size_t attemptsLeft = max(1, download.retries);
+				size_t lastProgress;
 				void updateProgress(size_t amount, size_t total) {
+					if (amount == lastProgress) {
+						return;
+					}
 					send(ownerTid, download.ID, immutable QueueItemProgress(QueueItemState.downloading, amount, total));
+					lastProgress = amount;
 				}
 				do {
 					attemptsLeft--;
