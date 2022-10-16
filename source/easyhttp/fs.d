@@ -50,7 +50,11 @@ auto fixPath(in string inPath, InvalidCharHandling invalidCharHandling = Invalid
 		dest.skipOver(`\\?\`);
 	}
 	dest = buildNormalizedPath(dest.absolutePath);
-	auto origDrive = dest.driveName;
+	version(Windows) {
+		string origDrive = dest.driveName;
+	} else {
+		string origDrive = "/";
+	}
 	auto split = dest.pathSplitter;
 	split.skipOver!isRooted();
 	dest = buildPath(only(origDrive).chain(split.map!(x => fixPathComponent(x, invalidCharHandling)).array));
@@ -74,8 +78,10 @@ auto fixPath(in string inPath, InvalidCharHandling invalidCharHandling = Invalid
 	assert(fixPath(longFilename).toUTF8.length <= maxPath);
 	assert(fixPath("invalid\0").equal("invalid".asAbsolutePath));
 	assert(fixPath("invalid\0", InvalidCharHandling.replaceUnicode).equal("invalid␀".asAbsolutePath));
-	assert(fixPath(`\\?\C:\windows\system32`).equal(`C:\windows\system32`));
-	version(Windows) assert(fixPath(`\\?\C:\windows`).equal(`C:\windows`));
+	version(Windows) {
+		assert(fixPath(`\\?\C:\windows\system32`).equal(`C:\windows\system32`));
+		assert(fixPath(`\\?\C:\windows`).equal(`C:\windows`));
+	}
 }
 string fixPathComponent(string input, InvalidCharHandling invalidCharHandling = InvalidCharHandling.remove) @safe pure {
 	import std.algorithm : all, among, filter, map, min, substitute;

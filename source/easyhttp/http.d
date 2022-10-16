@@ -165,7 +165,7 @@ struct HTTPHeader {
 immutable Nullable!string systemCertPath;
 shared static this() {
 	version(Windows) static immutable caCertSearchPaths = ["./curl-ca-bundle.crt"];
-	version(Linux) static immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
+	version(linux) static immutable caCertSearchPaths = ["/usr/share/ca-certificates"];
 	version(FreeBSD) static immutable caCertSearchPaths = ["/usr/local/share/certs/ca-root-nss.crt"];
 	foreach (path; caCertSearchPaths) {
 		if (path.exists) {
