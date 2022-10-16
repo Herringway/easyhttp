@@ -463,6 +463,7 @@ struct Request {
 							tracef("Received cookie %s %s, %s: %s", cookie.domain, cookie.path, key, cookie.value);
 						}
 					}
+					response._content = [];
 					if (method != HTTPMethod.head) {
 						if (progressUpdate !is null) {
 							while (!res.bodyReader.empty) {
