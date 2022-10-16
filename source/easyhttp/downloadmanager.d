@@ -363,7 +363,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 			post1 = true;
 		};
 		onProgress = (req, qd, p) {
-			writefln!"[%05d/%05d] Downloading %s to %s"(qd.ID, qd.count, req.request.url, req.destPath);
+			assert(p.state == QueueItemState.skipping);
 		};
 		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
