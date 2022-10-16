@@ -175,6 +175,9 @@ struct RequestQueue {
 						updateProgress(successID, QueueItemProgress(QueueItemState.error));
 					}
 				},
+				(immutable size_t id, immutable QueueItemProgress progress) {
+					updateProgress(id, progress);
+				},
 				(QueueError error) {
 					errorOccurred(error.ID, error);
 					auto progress = QueueItemProgress(QueueItemState.error);
@@ -244,14 +247,17 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 				import std.algorithm.comparison : max;
 				import std.exception : enforce;
 				size_t attemptsLeft = max(1, download.retries);
+				void updateProgress(size_t amount, size_t total) {
+					send(ownerTid, download.ID, immutable QueueItemProgress(QueueItemState.downloading, amount, total));
+				}
 				do {
 					attemptsLeft--;
 					try {
 						if (save) {
-							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError);
+							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError, &updateProgress);
 							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft));
 						} else {
-							immutable response = download.request.perform();
+							immutable response = download.request.perform(&updateProgress);
 							enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, download.request.url));
 							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft));
 						}

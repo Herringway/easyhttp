@@ -344,7 +344,7 @@ struct Request {
 	/++
 	 + Performs the request.
 	 +/
-	auto perform() const @safe {
+	auto perform(void delegate(size_t current, size_t total) progressUpdate = null) const @safe {
 		import vibe.http.client;
 		import vibe.utils.dictionarylist;
 		import vibe.stream.operations;
@@ -421,13 +421,11 @@ struct Request {
 					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 				},
 				(scope HTTPClientResponse res) {
-					if (method != HTTPMethod.head) {
-						response._content = assumeUnique(res.bodyReader.readAll());
-					}
 					response.statusCode = cast(HTTPStatus)res.statusCode;
+					size_t length;
+					string md5;
 					if (verbose) {
 						tracef("Response code: %s", res.statusCode);
-						tracef("Received body %s", response._content);
 					}
 					foreach (key, value; res.headers.byKeyValue) {
 						response.headers ~= HTTPHeader(key, value);
@@ -442,7 +440,6 @@ struct Request {
 								}
 								break;
 							case "content-md5":
-								string md5;
 								try {
 									md5 = toHexString(Base64.decode(value));
 								} catch (Exception) {
@@ -450,12 +447,9 @@ struct Request {
 									tracef("Invalid content-md5 string '%s' received, discarding", value);
 									continue;
 								}
-								if (method != HTTPMethod.head) {
-									enforce(response.md5 == md5, new HashException("MD5", response.md5, md5));
-								}
 								break;
 							case "content-length":
-								enforce(ignoreSizeMismatch || (response._content.length == value.to!size_t), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, value.to!size_t)));
+								length = value.to!size_t;
 								break;
 							case "location":
 								tmpURL = easyhttp.url.URL(tmpURL).absoluteURL(value).text;
@@ -469,6 +463,26 @@ struct Request {
 							tracef("Received cookie %s %s, %s: %s", cookie.domain, cookie.path, key, cookie.value);
 						}
 					}
+					if (method != HTTPMethod.head) {
+						if (progressUpdate !is null) {
+							while (!res.bodyReader.empty) {
+								ubyte[4096] chunk;
+								const amount = res.bodyReader.read(chunk[], IOMode.immediate);
+								response._content ~= chunk[0 .. amount];
+								const upper = length != 0 ? length : response._content.length;
+								progressUpdate(response._content.length, upper);
+							}
+						} else {
+							response._content = assumeUnique(res.bodyReader.readAll());
+						}
+						if (verbose) {
+							tracef("Received body %s", response._content);
+						}
+					}
+					if ((md5 != "") && (method != HTTPMethod.head)) {
+						enforce(response.md5 == md5, new HashException("MD5", response.md5, md5));
+					}
+					enforce(ignoreSizeMismatch || (response._content.length == length), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, length)));
 				},
 			settings);
 			if (!response.statusCode.among(HTTPStatus.MovedPermanently, HTTPStatus.Found, HTTPStatus.SeeOther, HTTPStatus.TemporaryRedirect)) {
@@ -508,9 +522,9 @@ struct Request {
 	 +  fullPath = default destination for the file to be saved
 	 +  overwrite = whether or not to overwrite existing files
 	 +/
-	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true) const @safe {
+	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true, void delegate(size_t, size_t) progressUpdate = null) const @safe {
 		SavedFileInformation output;
-		auto response = perform();
+		auto response = perform(progressUpdate);
 		enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, url));
 		output.response = response;
 		if (fullPath.exists) {
