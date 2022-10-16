@@ -469,8 +469,7 @@ struct Request {
 								ubyte[4096] chunk;
 								const amount = res.bodyReader.read(chunk[], IOMode.immediate);
 								response._content ~= chunk[0 .. amount];
-								const upper = length != 0 ? length : response._content.length;
-								progressUpdate(response._content.length, upper);
+								progressUpdate(response._content.length, length);
 							}
 						} else {
 							response._content = assumeUnique(res.bodyReader.readAll());
