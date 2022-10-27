@@ -288,6 +288,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					} catch (Throwable e) {
 						if (attemptsLeft == 0) {
 							send(ownerTid, QueueError(download.ID, e.msg));
+							tracef("Error: %s", e);
 						}
 					}
 				} while(attemptsLeft > 0);
