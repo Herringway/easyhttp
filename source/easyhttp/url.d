@@ -210,8 +210,8 @@ struct URL {
 	 +/
 	URL withNewParams(T)(T inParams) const if (isURLEncodable!T) {
 		auto url = URL(protocol, hostname, path, inParams);
-		foreach (k, v; params) {
-			url.params ~= QueryParameter(k, v);
+		foreach (k; params.keys.sort) {
+			url.params ~= QueryParameter(k, params[k]);
 		}
 		return url;
 	}
@@ -232,7 +232,7 @@ struct URL {
 		} catch (Exception e) {
 			return "";
 		}
-		return parameterPrintable.sort().join("&");
+		return parameterPrintable.join("&");
 	}
 	/++
 	 + Transforms the specified relative URL to an absolute one.
