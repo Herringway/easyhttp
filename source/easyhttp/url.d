@@ -89,6 +89,7 @@ string getHostname(in string url, in URL.Proto protocol) pure @safe nothrow {
 	assert(getHostname("example/some/path", URL.Proto.Unknown) == "example");
 	assert(getHostname("http:example", URL.Proto.HTTP) == "example");
 }
+alias SemicolonQueryParameters = Flag!"SemicolonQueryParameters";
 /++
  + A Uniform Resource Locator.
  +/
@@ -142,7 +143,7 @@ struct URL {
 		this.path = inPath;
 	}
 	/// Construct a URL from a string
-	this(string str, Flag!"SemicolonQueryParameters" semicolonQueryParameters = Flag!"SemicolonQueryParameters".no) @safe pure nothrow {
+	this(string str, SemicolonQueryParameters semicolonQueryParameters = SemicolonQueryParameters.no) @safe pure nothrow {
 		import std.algorithm.iteration : substitute;
 		import std.utf : byCodeUnit;
 		str = str.byCodeUnit.substitute!('\\', '/').array;
