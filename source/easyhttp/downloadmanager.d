@@ -117,11 +117,11 @@ struct RequestQueue {
 		by URL, removes duplicates.
 	+/
 	void prepare() @safe pure {
-		import std.algorithm.iteration : uniq;
+		import std.algorithm.iteration : map, uniq;
 		import std.algorithm.sorting : sort;
 		auto indices = iota(0, queue.length).array;
-		indices.sort!((x, y) => queue[x].request.url > queue[y].request.url)();
-		queue = indexed(queue, indices).uniq().array;
+		indices.sort!((x,y) => queue[x].destPath < queue[y].destPath)();
+		queue = indices.uniq!((x,y) => queue[x].destPath == queue[y].destPath).map!(x => queue[x]).array;
 	}
 	/++
 		Begin downloading queued items.
