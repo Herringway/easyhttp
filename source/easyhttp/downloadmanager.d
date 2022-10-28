@@ -14,6 +14,7 @@ enum ShouldContinue {
 	no = 0,
 	yes = 1,
 	error = 2,
+	retry = 3,
 }
 
 struct QueuedRequest {
@@ -144,9 +145,18 @@ struct RequestQueue {
 		}
 		ulong completed;
 		ulong id;
+		ulong[] retryQueueIDs;
 		while (completed < queueCount) {
 			receive(
 				(bool isReady, Tid child) {
+					if (retryQueueIDs.length > 0) {
+						const id = retryQueueIDs[0];
+						retryQueueIDs = retryQueueIDs[1 .. $];
+						// skip checks, they were done on the first try
+						updateProgress(id, QueueItemProgress(QueueItemState.starting));
+						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
+						return;
+					}
 					while (id < queue.length) {
 						if (preDownload(id) == ShouldContinue.yes) {
 							if (queue[id].skipDownload) {
@@ -168,9 +178,13 @@ struct RequestQueue {
 					completed++;
 					send(child, true);
 				},
-				(immutable size_t successID, immutable QueueResult result) {
-					if (postDownload(successID, result) == ShouldContinue.yes) {
+				(immutable size_t successID, immutable QueueResult result, Tid child) {
+					const shouldContinue = postDownload(successID, result);
+					if (shouldContinue == ShouldContinue.yes) {
 						updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
+					} else if (shouldContinue == ShouldContinue.retry) {
+						retryQueueIDs ~= successID;
+						updateProgress(successID, QueueItemProgress(QueueItemState.error));
 					} else {
 						updateProgress(successID, QueueItemProgress(QueueItemState.error));
 					}
@@ -260,11 +274,11 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					try {
 						if (save) {
 							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError, &updateProgress);
-							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft));
+							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft), thisTid);
 						} else {
 							immutable response = download.request.perform(&updateProgress);
 							enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, download.request.url));
-							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft));
+							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft), thisTid);
 						}
 						break;
 					} catch (Exception e) {
@@ -423,6 +437,33 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 		version(online) {
 			download();
 			assert(pre1 && !pre2 && !post1 && !post2);
+		}
+	}
+	// retry once
+	with(RequestQueue()) {
+		uint[20] tries;
+		bool[20] successes;
+		postDownloadCheck = (r, r2, q) {
+			if (tries[q.ID]++ > 0) {
+				return ShouldContinue.yes;
+			}
+			return ShouldContinue.retry;
+		};
+		auto dlReq = QueuedRequest();
+		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
+		dlReq.postDownload = (r, r2, q) {
+			successes[q.ID] = true;
+			remove(r.destPath);
+		};
+		foreach (i; 0 .. 20) {
+			dlReq.destPath = format!"whack%d.gif"(i);
+			add(dlReq);
+		}
+		version(online) {
+			download();
+			foreach (success; successes) {
+				assert(success);
+			}
 		}
 	}
 }
