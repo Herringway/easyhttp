@@ -15,7 +15,7 @@
 			"name": "default",
 			"targetType": "library",
 			"dependencies": {
-				"easysettings": "~>0.2.0"
+				"easysettings": "~>0.3.0"
 			}
 		},
 		{
@@ -27,7 +27,7 @@
 			"targetType": "library",
 			"versions": ["online"],
 			"dependencies": {
-				"easysettings": "~>0.2.0"
+				"easysettings": "~>0.3.0"
 			}
 		}
 	]
