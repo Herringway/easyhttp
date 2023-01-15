@@ -408,6 +408,7 @@ struct URL {
 	assert(URL("http://url.example/dir").absoluteURL(URL("different")).text() == "http://url.example/dir/different", "cwd-relative (w/dir) URL (struct) failure");
 	assert(URL("http://url.example").absoluteURL!"/%s"("test").text() == "http://url.example/test");
 	assert(URL("http://url.example").absoluteURL!"/%s"(5).text() == "http://url.example/5");
+	assert(URL("http://url.example").absoluteURL!"/%s,%s"(5,5).text() == "http://url.example/5,5");
 	assert(URL("http://url.example/").absoluteURL("/", ["hello": "world"]).text == "http://url.example/?hello=world");
 	assert(URL("http://url.example/somewhere/").absoluteURL("http://url.example/somewhere").text == "http://url.example/somewhere");
 	assert(URL("http://url.example/somewhere").absoluteURL("?param=value").text == "http://url.example/somewhere?param=value");

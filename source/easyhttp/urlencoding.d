@@ -264,7 +264,7 @@ package string encodePathComponentSafe(string input) @safe pure {
 	string output;
 	output.reserve(input.length*3);
 	foreach (idx, char character; input) {
-		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '/')) {
+		if ((character >= 'a') && (character <= 'z') || (character >= 'A') && (character <= 'Z') || (character >= '0') && (character <= '9') || character.among('-', '_', '.', '!', '~', '*', '\'', '/', ',')) {
 			output ~= character;
 		} else if ((character == '%') && (idx + 2 < input.length) && input[idx + 1 .. idx + 3].byCodeUnit.all!isHexadecimal) {
 			output ~= character;
@@ -283,6 +283,7 @@ package string encodePathComponentSafe(string input) @safe pure {
 	assert(encodePathComponentSafe("Helloã") == "Hello%C3%A3");
 	assert(encodePathComponentSafe("Hello%20") == "Hello%20");
 	assert(encodePathComponentSafe("Hello%") == "Hello%25");
+	assert(encodePathComponentSafe("Hello,Hi") == "Hello,Hi");
 }
 package string decodeComponentSafe(string input) @safe pure {
 	import std.utf : byCodeUnit;
