@@ -343,7 +343,7 @@ struct URL {
 	assert(URL("/something").text() == "/something", "Path-only absolute URL recreation failure");
 	assert(URL("/something?a=b:d").text() == "/something?a=b%3Ad");
 	assert(URL("http://url.example/?a=b&&").text() == "http://url.example/?a=b");
-	assert(URL("http://url.example/blah().file").text() == "http://url.example/blah%28%29.file");
+	assert(URL("http://url.example/blah().file").text() == "http://url.example/blah().file");
 	assert(URL("http://url.example/?a=b;;", Flag!"SemicolonQueryParameters".yes).text() == "http://url.example/?a=b");
 	assert(URL("https://example.com").absoluteURL("/it%E2%80%99s").text() == "https://example.com/it%E2%80%99s");
 	with(URL("something")) {
