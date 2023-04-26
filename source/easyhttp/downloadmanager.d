@@ -29,6 +29,15 @@ struct QueuedRequest {
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
+	private bool opEquals(const QueuedRequest req2) const @safe pure nothrow @nogc {
+		if (destPath != req2.destPath) {
+			return false;
+		}
+		if (postDownload != req2.postDownload) {
+			return false;
+		}
+		return true;
+	}
 }
 struct QueueDetails {
 	ulong ID;
@@ -121,7 +130,7 @@ struct RequestQueue {
 		import std.algorithm.sorting : sort;
 		auto indices = iota(0, queue.length).array;
 		indices.sort!((x,y) => queue[x].destPath < queue[y].destPath)();
-		queue = indices.uniq!((x,y) => queue[x].destPath == queue[y].destPath).map!(x => queue[x]).array;
+		queue = indices.uniq!((x,y) => queue[x] == queue[y]).map!(x => queue[x]).array;
 	}
 	/++
 		Begin downloading queued items.
