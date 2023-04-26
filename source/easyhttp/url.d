@@ -327,6 +327,12 @@ struct URL {
 		}
 		return 0;
 	}
+	string toSiryulType()() const @safe {
+		return this.text;
+	}
+	static URL fromSiryulType()(string val) @safe {
+		return URL(val);
+	}
 }
 @safe pure unittest {
 	const a = URL(URL.Proto.HTTP, "localhost", "/", ["a": "b"]);
