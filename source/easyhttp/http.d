@@ -222,6 +222,7 @@ struct Request {
 	private POSTDataType postDataType;
 	private QueryParameter[] formPOSTData;
 	private immutable(ubyte)[] rawPOSTData;
+	size_t retries = 10;
 
 	//private Nullable!string outFile;
 	invariant() {
@@ -367,7 +368,7 @@ struct Request {
 			} catch (Exception) {}
 		};
 		string tmpURL = url.text;
-		foreach (i; 0 .. 10) {
+		foreach (i; 0 .. retries) {
 			requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
 					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
@@ -576,6 +577,7 @@ struct Request {
 			postDataType,
 			formPOSTData.idup,
 			rawPOSTData,
+			retries,
 			expectedMD5,
 			expectedSHA1,
 			expectedSHA256,
