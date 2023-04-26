@@ -170,7 +170,9 @@ struct RequestQueue {
 						if (preDownload(id) == ShouldContinue.yes) {
 							if (queue[id].skipDownload) {
 								updateProgress(id, QueueItemProgress(QueueItemState.starting));
-								postDownload(id, QueueResult.init);
+								QueueResult qResult;
+								qResult.path = queue[id].destPath;
+								postDownload(id, qResult);
 								updateProgress(id, QueueItemProgress(QueueItemState.complete, 0, 0));
 							} else {
 								updateProgress(id, QueueItemProgress(QueueItemState.starting));
