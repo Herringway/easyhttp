@@ -414,12 +414,12 @@ struct Request {
 					foreach (header; outHeaders) {
 						req.headers[header.key] = header.value;
 					}
+					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 					if (verbose) {
 						foreach (key, value; req.headers.byKeyValue) {
 							tracef("Adding header %s: %s", key, value);
 						}
 					}
-					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 				},
 				(scope HTTPClientResponse res) {
 					response.statusCode = cast(HTTPStatus)res.statusCode;
