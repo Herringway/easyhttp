@@ -1,6 +1,5 @@
 module easyhttp.cache;
 
-import core.time;
 import std.conv;
 import std.experimental.logger;
 import std.file;
@@ -14,17 +13,13 @@ import easyhttp.fs;
 import easyhttp.http;
 import easyhttp.simple;
 import easyhttp.url;
-
-struct RandomDelay {
-	Duration baseDuration;
-	double range;
-}
+import easyhttp.util;
 
 struct DownloadCache {
 	string basePath;
 	uint retries = 1;
 	private RequestQueue downloader;
-	Nullable!RandomDelay delay;
+	Nullable!RequestDelay delay;
 	this(string path) @safe
 	in(path != "", "Path cannot be blank")
 	{
@@ -32,19 +27,6 @@ struct DownloadCache {
 	}
 	this(RequestQueue manager) @safe {
 		downloader = manager;
-	}
-	private void tryDelay() const @safe {
-		import core.thread : Thread;
-		import std.random : uniform;
-		static void trustedSleep(Duration duration) @trusted {
-			Thread.sleep(duration);
-		}
-		if (delay.isNull) {
-			return;
-		}
-		with(delay.get) {
-			trustedSleep((cast(uint)(baseDuration.total!"msecs" * uniform(1.0 - range, 1.0 + range))).msecs);
-		}
 	}
 
 	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
@@ -60,7 +42,9 @@ struct DownloadCache {
 			if (refresh) {
 				const localLastModified = trustedTimeLastModified(path);
 				const remoteLastModified = head(req.url).lastModified;
-				tryDelay();
+				if (!delay.isNull) {
+					tryDelay(delay.get);
+				}
 				if (remoteLastModified > localLastModified) {
 					fetch = true;
 					tracef("Remote has been modified since last fetch, refreshing (%s > %s)", remoteLastModified, localLastModified);
@@ -79,6 +63,9 @@ struct DownloadCache {
 		uint retriesLeft = retries;
 		do {
 			retriesLeft--;
+			if (!delay.isNull) {
+				tryDelay(delay.get);
+			}
 			try {
 				auto resp = req.perform();
 				enforce(resp.statusCode.isSuccessful, new StatusException(resp.statusCode, req.url));
@@ -93,7 +80,6 @@ struct DownloadCache {
 					tracef("%s (%s): retrying (%s)", req.url, path, e.msg);
 				}
 			}
-			tryDelay();
 		} while (retriesLeft > 0);
 		assert(0);
 	}
