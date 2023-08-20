@@ -40,15 +40,15 @@ struct QueuedRequest {
 	}
 }
 struct QueueDetails {
-	ulong ID;
+	ulong id;
 	ulong count;
 }
 struct QueueError {
-	size_t ID;
+	size_t id;
 	string msg;
 }
 struct QueueItem {
-	size_t ID;
+	size_t id;
 	Request request;
 	string destPath;
 	FileExistsAction fileExistsAction;
@@ -204,10 +204,10 @@ struct RequestQueue {
 					updateProgress(id, progress);
 				},
 				(QueueError error) {
-					errorOccurred(error.ID, error);
+					errorOccurred(error.id, error);
 					auto progress = QueueItemProgress(QueueItemState.error);
 					progress.error = error;
-					updateProgress(error.ID, progress);
+					updateProgress(error.id, progress);
 				}
 			);
 		}
@@ -277,7 +277,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					if (amount == lastProgress) {
 						return;
 					}
-					send(ownerTid, download.ID, immutable QueueItemProgress(QueueItemState.downloading, amount, total));
+					send(ownerTid, download.id, immutable QueueItemProgress(QueueItemState.downloading, amount, total));
 					lastProgress = amount;
 				}
 				do {
@@ -285,20 +285,20 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					try {
 						if (save) {
 							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError, &updateProgress);
-							send(ownerTid, download.ID, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft), thisTid);
+							send(ownerTid, download.id, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft), thisTid);
 						} else {
 							immutable response = download.request.perform(&updateProgress);
 							enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, download.request.url));
-							send(ownerTid, download.ID, immutable QueueResult(response, "", false, download.retries - attemptsLeft), thisTid);
+							send(ownerTid, download.id, immutable QueueResult(response, "", false, download.retries - attemptsLeft), thisTid);
 						}
 						break;
 					} catch (Exception e) {
 						if (attemptsLeft == 0) {
-							send(ownerTid, QueueError(download.ID, e.msg));
+							send(ownerTid, QueueError(download.id, e.msg));
 						}
 					} catch (Throwable e) {
 						if (attemptsLeft == 0) {
-							send(ownerTid, QueueError(download.ID, e.msg));
+							send(ownerTid, QueueError(download.id, e.msg));
 							tracef("Error: %s", e);
 						}
 					}

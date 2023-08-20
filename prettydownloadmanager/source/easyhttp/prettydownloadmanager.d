@@ -33,20 +33,20 @@ struct PrettyDownloadManager {
 			import std.algorithm.comparison : among;
 			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
-				progressTracker.setItemActive(queueDetails.ID);
+				progressTracker.setItemActive(queueDetails.id);
 			}
-			progressTracker.setItemMaximum(queueDetails.ID, progress.size);
-			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
+			progressTracker.setItemMaximum(queueDetails.id, progress.size);
+			progressTracker.setItemProgress(queueDetails.id, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
-				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+				progressTracker.setItemStatus(queueDetails.id, text(progress.state, " - ", progress.error.msg));
 				if (!noColours) {
-					progressTracker.setItemColours(queueDetails.ID, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
+					progressTracker.setItemColours(queueDetails.id, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
 				}
 			} else {
-				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
+				progressTracker.setItemStatus(queueDetails.id, progress.state.text);
 			}
 			if (progress.state.among(QueueItemState.complete, QueueItemState.error)) {
-				progressTracker.completeItem(queueDetails.ID);
+				progressTracker.completeItem(queueDetails.id);
 			}
 			progressTracker.updateDisplay();
 		};
@@ -138,20 +138,20 @@ struct PrettyDownloadCache {
 			import std.algorithm.comparison : among;
 			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
-				progressTracker.setItemActive(queueDetails.ID);
+				progressTracker.setItemActive(queueDetails.id);
 			}
-			progressTracker.setItemMaximum(queueDetails.ID, progress.size);
-			progressTracker.setItemProgress(queueDetails.ID, progress.downloaded);
+			progressTracker.setItemMaximum(queueDetails.id, progress.size);
+			progressTracker.setItemProgress(queueDetails.id, progress.downloaded);
 			if (progress.state == QueueItemState.error) {
-				progressTracker.setItemStatus(queueDetails.ID, text(progress.state, " - ", progress.error.msg));
+				progressTracker.setItemStatus(queueDetails.id, text(progress.state, " - ", progress.error.msg));
 				if (!noColours) {
-					progressTracker.setItemColours(queueDetails.ID, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
+					progressTracker.setItemColours(queueDetails.id, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
 				}
 			} else {
-				progressTracker.setItemStatus(queueDetails.ID, progress.state.text);
+				progressTracker.setItemStatus(queueDetails.id, progress.state.text);
 			}
 			if (progress.state.among(QueueItemState.complete, QueueItemState.error, QueueItemState.skipping)) {
-				progressTracker.completeItem(queueDetails.ID);
+				progressTracker.completeItem(queueDetails.id);
 			}
 			progressTracker.updateDisplay();
 		};
