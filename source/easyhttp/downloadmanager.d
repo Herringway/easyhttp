@@ -1,6 +1,7 @@
 module easyhttp.downloadmanager;
 
 import easyhttp.http;
+import easyhttp.util;
 import std.stdio;
 
 import std.concurrency;
@@ -8,6 +9,7 @@ import std.experimental.logger;
 import std.functional;
 import std.path;
 import std.range;
+import std.typecons;
 import std.variant;
 
 enum ShouldContinue {
@@ -29,6 +31,7 @@ struct QueuedRequest {
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
+	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
 	private bool opEquals(const QueuedRequest req2) const @safe pure nothrow @nogc {
 		if (destPath != req2.destPath) {
 			return false;
@@ -53,6 +56,7 @@ struct QueueItem {
 	string destPath;
 	FileExistsAction fileExistsAction;
 	size_t retries;
+	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
 }
 
 struct QueueResult {
@@ -110,6 +114,8 @@ struct RequestQueue {
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
+	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
+	Nullable!RequestDelay delay;
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		import std.algorithm.iteration : map;
 		import std.algorithm.searching : canFind;
@@ -162,8 +168,11 @@ struct RequestQueue {
 						const id = retryQueueIDs[0];
 						retryQueueIDs = retryQueueIDs[1 .. $];
 						// skip checks, they were done on the first try
+						if (!delay.isNull) {
+							tryDelay(delay.get);
+						}
 						updateProgress(id, QueueItemProgress(QueueItemState.starting));
-						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
+						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].generateName ? queue[id].generateName : generateName));
 						return;
 					}
 					while (id < queue.length) {
@@ -177,7 +186,7 @@ struct RequestQueue {
 							} else {
 								updateProgress(id, QueueItemProgress(QueueItemState.starting));
 								assert(!save || (queue[id].destPath != ""));
-								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries));
+								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].generateName ? queue[id].generateName : generateName));
 								id++;
 								return;
 							}
@@ -284,7 +293,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					attemptsLeft--;
 					try {
 						if (save) {
-							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError, &updateProgress);
+							immutable response = download.request.saveTo(download.destPath, download.fileExistsAction, throwOnError, &updateProgress, download.generateName);
 							send(ownerTid, download.id, immutable QueueResult(response.response, response.path, response.overwritten, download.retries - attemptsLeft), thisTid);
 						} else {
 							immutable response = download.request.perform(&updateProgress);

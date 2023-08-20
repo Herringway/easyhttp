@@ -523,11 +523,14 @@ struct Request {
 	 +  fullPath = default destination for the file to be saved
 	 +  overwrite = whether or not to overwrite existing files
 	 +/
-	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true, void delegate(size_t, size_t) progressUpdate = null) const @safe {
+	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true, void delegate(size_t, size_t) progressUpdate = null, string delegate(string, string) @safe pure generateName = null) const @safe {
 		SavedFileInformation output;
 		auto response = perform(progressUpdate);
 		enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, url));
 		output.response = response;
+		if (generateName !is null) {
+			fullPath = generateName(fullPath, response.overriddenFilename);
+		}
 		if (fullPath.exists) {
 			final switch (fileExistsAction) {
 				case FileExistsAction.rename:

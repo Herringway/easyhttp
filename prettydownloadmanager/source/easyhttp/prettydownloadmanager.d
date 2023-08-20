@@ -63,6 +63,12 @@ struct PrettyDownloadManager {
 	void onError(typeof(manager.onError) dg) @safe {
 		manager.onError = dg;
 	}
+	auto ref delay() @safe {
+		return manager.delay;
+	}
+	auto ref generateName() @safe {
+		return manager.generateName;
+	}
 	auto ref queueCount() @safe {
 		return manager.queueCount;
 	}
