@@ -238,7 +238,7 @@ struct Request {
 	/++
 	 + The default filename for the file being requested.
 	 +/
-	string filename() @safe nothrow const pure {
+	string filename() @safe const pure return scope {
 		return url.fileName;
 	}
 	/++
@@ -356,7 +356,7 @@ struct Request {
 			enforce(certPath.get.exists, "Certificate path not found");
 		}
 		TLSPeerValidationMode* validation = new TLSPeerValidationMode((peerVerification ? TLSPeerValidationMode.checkTrust : 0) | (ignoreHostCert ? 0 : TLSPeerValidationMode.validCert));
-		settings.tlsContextSetup = (scope TLSContext context) @safe {
+		settings.tlsContextSetup = (TLSContext context) @safe {
 			try {
 				foreach (path; extraCurlCertSearchPaths.chain(.settings.certPaths, systemCertPath)) {
 					if (path.exists) {

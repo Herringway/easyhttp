@@ -187,7 +187,7 @@ struct URL {
 	/++
 	 + The filename for the URL, with nothing else.
 	 +/
-	string fileName() nothrow const pure @safe {
+	string fileName() const pure @safe return scope {
 		if (path.split("/").length == 0) {
 			return "";
 		}

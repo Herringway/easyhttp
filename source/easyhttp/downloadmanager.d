@@ -28,7 +28,7 @@ struct QueuedRequest {
 	bool skipDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
-	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe nothrow onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
@@ -111,7 +111,7 @@ struct RequestQueue {
 	package const(QueuedRequest)[] queue;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
-	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe onError;
+	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe nothrow onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
@@ -198,22 +198,24 @@ struct RequestQueue {
 					completed++;
 					send(child, true);
 				},
-				(immutable size_t successID, immutable QueueResult result, Tid child) {
+				(immutable size_t successID, immutable QueueResult result, Tid child) nothrow {
 					const shouldContinue = postDownload(successID, result);
 					if (shouldContinue == ShouldContinue.yes) {
 						updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
 					} else if (shouldContinue == ShouldContinue.retry) {
 						retryQueueIDs ~= successID;
 						updateProgress(successID, QueueItemProgress(QueueItemState.error));
+					} else if (shouldContinue == ShouldContinue.no) {
+						updateProgress(successID, QueueItemProgress(QueueItemState.complete));
 					} else {
 						updateProgress(successID, QueueItemProgress(QueueItemState.error));
 					}
 				},
-				(immutable size_t id, immutable QueueItemProgress progress) {
+				(immutable size_t id, immutable QueueItemProgress progress) nothrow {
 					updateProgress(id, progress);
 				},
-				(QueueError error) {
-					errorOccurred(error.id, error);
+				(QueueError error) nothrow {
+					errorOccurred(error);
 					auto progress = QueueItemProgress(QueueItemState.error);
 					progress.error = error;
 					updateProgress(error.id, progress);
@@ -222,50 +224,64 @@ struct RequestQueue {
 		}
 		queue = [];
 	}
-	private void updateProgress(in ulong id, in QueueItemProgress progress) const @safe {
-		if (onProgress) {
-			onProgress(queue[id], QueueDetails(id, queue.length), progress);
-		}
-		if (queue[id].onProgress) {
-			queue[id].onProgress(queue[id], QueueDetails(id, queue.length), progress);
+	private void updateProgress(in ulong id, in QueueItemProgress progress) const @safe nothrow {
+		try {
+			if (onProgress) {
+				onProgress(queue[id], QueueDetails(id, queue.length), progress);
+			}
+			if (queue[id].onProgress) {
+				queue[id].onProgress(queue[id], QueueDetails(id, queue.length), progress);
+			}
+		} catch (Exception e) {
+			errorOccurred(QueueError(id, e.msg));
 		}
 	}
-	private ShouldContinue postDownload(in ulong id, in QueueResult queueResult) const @safe {
+	private ShouldContinue postDownload(in ulong id, in QueueResult queueResult) const @safe nothrow {
 		ShouldContinue result = ShouldContinue.yes;
-		if (postDownloadCheck) {
-			result = postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
-		}
-		if (result == ShouldContinue.yes) {
-			if(queue[id].postDownloadCheck) {
-				result = queue[id].postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
+		try {
+			if (postDownloadCheck) {
+				result = postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
 			}
 			if (result == ShouldContinue.yes) {
-				if (postDownloadFunction) {
-					postDownloadFunction(queue[id], queueResult, QueueDetails(id, queue.length));
+				if(queue[id].postDownloadCheck) {
+					result = queue[id].postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
 				}
-				if (queue[id].postDownload) {
-					queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
+				if (result == ShouldContinue.yes) {
+					if (postDownloadFunction) {
+						postDownloadFunction(queue[id], queueResult, QueueDetails(id, queue.length));
+					}
+					if (queue[id].postDownload) {
+						queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
+					}
 				}
 			}
+			return result;
+		} catch (Exception e) {
+			errorOccurred(QueueError(id, e.msg));
+			return ShouldContinue.error;
 		}
-		return result;
 	}
-	private ShouldContinue preDownload(in ulong id) const @safe {
+	private ShouldContinue preDownload(in ulong id) const @safe nothrow {
 		ShouldContinue result = ShouldContinue.yes;
-		if (preDownloadFunction) {
-			result = preDownloadFunction(queue[id], QueueDetails(id, queue.length));
+		try {
+			if (preDownloadFunction) {
+				result = preDownloadFunction(queue[id], QueueDetails(id, queue.length));
+			}
+			if ((result == ShouldContinue.yes) && queue[id].preDownload) {
+				result = queue[id].preDownload(queue[id], QueueDetails(id, queue.length));
+			}
+			return result;
+		} catch (Exception e) {
+			errorOccurred(QueueError(id, e.msg));
+			return ShouldContinue.error;
 		}
-		if ((result == ShouldContinue.yes) && queue[id].preDownload) {
-			result = queue[id].preDownload(queue[id], QueueDetails(id, queue.length));
-		}
-		return result;
 	}
-	private void errorOccurred(in ulong id, in QueueError error) const @safe {
+	private void errorOccurred(in QueueError error) const @safe nothrow {
 		if (onError) {
-			onError(queue[id], QueueDetails(id, queue.length), error);
+			onError(queue[error.id], QueueDetails(error.id, queue.length), error);
 		}
-		if (queue[id].onError) {
-			queue[id].onError(queue[id], QueueDetails(id, queue.length), error);
+		if (queue[error.id].onError) {
+			queue[error.id].onError(queue[error.id], QueueDetails(error.id, queue.length), error);
 		}
 	}
 }
@@ -302,10 +318,12 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 						}
 						break;
 					} catch (Exception e) {
+						debug(verbosehttp) tracef("Error downloading: %s", e);
 						if (attemptsLeft == 0) {
 							send(ownerTid, QueueError(download.id, e.msg));
 						}
 					} catch (Throwable e) {
+						debug(verbosehttp) tracef("Error downloading: %s", e);
 						if (attemptsLeft == 0) {
 							send(ownerTid, QueueError(download.id, e.msg));
 							tracef("Error: %s", e);
