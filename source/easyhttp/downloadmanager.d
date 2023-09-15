@@ -482,7 +482,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 		uint[20] tries;
 		bool[20] successes;
 		postDownloadCheck = (r, r2, q) {
-			if (tries[q.ID]++ > 0) {
+			if (tries[q.id]++ > 0) {
 				return ShouldContinue.yes;
 			}
 			return ShouldContinue.retry;
@@ -490,7 +490,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 		auto dlReq = QueuedRequest();
 		dlReq.request = getRequest(URL("https://misc.herringway.pw/whack.gif"));
 		dlReq.postDownload = (r, r2, q) {
-			successes[q.ID] = true;
+			successes[q.id] = true;
 			remove(r.destPath);
 		};
 		foreach (i; 0 .. 20) {
