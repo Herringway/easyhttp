@@ -10,6 +10,6 @@ version(Have_easysettings) {
 	import easysettings;
 
 	shared static this() {
-		settings = cast(immutable)loadSettings!Settings("herringway", "easyhttp");
+		settings = cast(immutable)loadSettings!Settings("herringway", SettingsFlags.none, "easyhttp");
 	}
 }
