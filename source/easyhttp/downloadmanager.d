@@ -169,7 +169,7 @@ struct RequestQueue {
 						retryQueueIDs = retryQueueIDs[1 .. $];
 						// skip checks, they were done on the first try
 						if (!delay.isNull) {
-							tryDelay(delay.get);
+							globalDelay.tryDelay(delay.get);
 						}
 						updateProgress(id, QueueItemProgress(QueueItemState.starting));
 						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].generateName ? queue[id].generateName : generateName));

@@ -43,7 +43,7 @@ struct DownloadCache {
 				const localLastModified = trustedTimeLastModified(path);
 				const remoteLastModified = head(req.url).lastModified;
 				if (!delay.isNull) {
-					tryDelay(delay.get);
+					globalDelay.tryDelay(delay.get);
 				}
 				if (remoteLastModified > localLastModified) {
 					fetch = true;
@@ -64,7 +64,7 @@ struct DownloadCache {
 		do {
 			retriesLeft--;
 			if (!delay.isNull) {
-				tryDelay(delay.get);
+				globalDelay.tryDelay(delay.get);
 			}
 			try {
 				auto resp = req.perform();
