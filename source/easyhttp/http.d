@@ -347,7 +347,7 @@ struct Request {
 	 +/
 	auto perform(void delegate(size_t current, size_t total) progressUpdate = null) const @safe {
 		import vibe.http.client;
-		import vibe.utils.dictionarylist;
+		import vibe.container.dictionarylist;
 		import vibe.stream.operations;
 		import vibe.stream.tls;
 		Response response;
