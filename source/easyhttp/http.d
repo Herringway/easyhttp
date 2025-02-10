@@ -214,6 +214,7 @@ struct Request {
 	private QueryParameter[] formPOSTData;
 	private immutable(ubyte)[] rawPOSTData;
 	size_t retries = 10;
+	private bool disableDH;
 
 	//private Nullable!string outFile;
 	invariant() {
@@ -321,6 +322,12 @@ struct Request {
 	ref bool ignoreHostCertificate() return @nogc @safe pure nothrow {
 		return ignoreHostCert;
 	}
+	/++
+	+ Disable using diffie-hellman key exchanges to work around bad DH params in TLS connections.
+	+/
+	void setLowerSecurity() @safe pure {
+		disableDH = true;
+	}
 
 	void setPOSTData(immutable ubyte[] data) @safe @nogc pure nothrow {
 		this.rawPOSTData = data;
@@ -350,6 +357,9 @@ struct Request {
 		TLSPeerValidationMode* validation = new TLSPeerValidationMode((peerVerification ? TLSPeerValidationMode.checkTrust : 0) | (ignoreHostCert ? 0 : TLSPeerValidationMode.validCert));
 		settings.tlsContextSetup = (TLSContext context) @safe {
 			try {
+				if (disableDH) {
+					context.setCipherList("DEFAULT:!DH");
+				}
 				foreach (path; extraCurlCertSearchPaths.chain(.settings.certPaths, systemCertPath)) {
 					if (path.exists) {
 						context.useTrustedCertificateFile(path);
