@@ -27,6 +27,7 @@ import std.uri;
 import std.utf;
 
 import easyhttp.config;
+import easyhttp.cookies;
 import easyhttp.fs;
 import easyhttp.url;
 import easyhttp.urlencoding;
@@ -146,16 +147,6 @@ bool isSuccessful(HTTPStatus status) @safe pure {
 }
 
 enum OAuthMethod { header, queryString, form }
-struct Cookie {
-	string domain;
-	string path;
-	string key;
-	string value;
-	void toString(T)(T sink) const if (isOutputRange!(T, char[])) {
-		import std.format : formattedWrite;
-		sink.formattedWrite!"%s=%s"(key, value);
-	}
-}
 
 struct HTTPHeader {
 	string key;
@@ -346,7 +337,8 @@ struct Request {
 	 + Performs the request.
 	 +/
 	auto perform(void delegate(size_t current, size_t total) progressUpdate = null) const @safe {
-		import vibe.http.client;
+		static import vibe.http.common;
+		import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
 		import vibe.container.dictionarylist;
 		import vibe.stream.operations;
 		import vibe.stream.tls;
