@@ -85,14 +85,10 @@ struct DownloadCache {
 	}
 
 	void queue(Request req) @safe {
-		string dest = getFilePath(req.url).toUTF8;
-		if (dest.exists) {
+		auto download = toQueuedRequest(req);
+		if (download.destPath.exists) {
 			return;
 		}
-		QueuedRequest download;
-		download.request = req;
-		download.fileExistsAction = FileExistsAction.skip;
-		download.destPath = dest;
 		downloader.add(download);
 	}
 
@@ -116,6 +112,24 @@ struct DownloadCache {
 	}
 	void perform(bool throwOnError = true) @system {
 		downloader.perform(throwOnError);
+	}
+	void invalidate(const QueuedRequest req) const @safe {
+		if (!req.destPath.exists) {
+			return;
+		}
+		remove(req.destPath);
+	}
+	void invalidate(Request req) const @safe {
+		invalidate(toQueuedRequest(req));
+	}
+
+	private QueuedRequest toQueuedRequest(Request req) const @safe {
+		string dest = getFilePath(req.url).toUTF8;
+		QueuedRequest download;
+		download.request = req;
+		download.fileExistsAction = FileExistsAction.skip;
+		download.destPath = dest;
+		return download;
 	}
 
 	auto getFilePath(const URL url) const @safe {
