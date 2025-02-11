@@ -20,8 +20,8 @@ struct PrettyDownloadManager {
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		return manager.pathAlreadyInQueue(path);
 	}
-	void add(const QueuedRequest request) @safe {
-		manager.add(request);
+	auto add(const QueuedRequest request) @safe {
+		return manager.add(request);
 	}
 	void prepare() @safe pure {
 		manager.prepare();
@@ -128,11 +128,11 @@ struct PrettyDownloadCache {
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		return manager.pathAlreadyInQueue(path);
 	}
-	void add(Request request) @safe {
-		manager.queue(request);
+	auto add(Request request) @safe {
+		return manager.queue(request);
 	}
-	void add(QueuedRequest request) @safe {
-		manager.queue(request);
+	auto add(QueuedRequest request) @safe {
+		return manager.queue(request);
 	}
 	void prepare() @safe pure {
 		manager.prepare();
