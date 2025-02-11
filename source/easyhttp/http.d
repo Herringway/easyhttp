@@ -583,6 +583,7 @@ struct Request {
 			formPOSTData.idup,
 			rawPOSTData,
 			retries,
+			disableDH,
 			expectedMD5,
 			expectedSHA1,
 			expectedSHA256,
