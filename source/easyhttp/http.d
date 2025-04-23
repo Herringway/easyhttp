@@ -469,9 +469,10 @@ struct Request {
 					response._content = [];
 					if (method != HTTPMethod.head) {
 						if (progressUpdate !is null) {
-							while (!res.bodyReader.empty) {
+							auto bodyReader = res.bodyReader;
+							while (!bodyReader.empty) {
 								ubyte[4096] chunk;
-								const amount = res.bodyReader.read(chunk[], IOMode.immediate);
+								const amount = bodyReader.read(chunk[], IOMode.immediate);
 								response._content ~= chunk[0 .. amount];
 								progressUpdate(response._content.length, length);
 							}
