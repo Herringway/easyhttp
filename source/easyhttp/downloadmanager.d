@@ -6,6 +6,7 @@ import std.stdio;
 
 import std.concurrency;
 import std.experimental.logger;
+import std.file;
 import std.functional;
 import std.path;
 import std.range;
@@ -22,6 +23,7 @@ enum ShouldContinue {
 struct QueuedRequest {
 	Request request;
 	string destPath;
+	bool autoCreateDirs;
 	size_t retries = 1;
 	FileExistsAction fileExistsAction;
 	string label;
@@ -56,6 +58,7 @@ struct QueueItem {
 	string destPath;
 	FileExistsAction fileExistsAction;
 	size_t retries;
+	bool autoCreateDirs;
 	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
 }
 
@@ -172,7 +175,7 @@ struct RequestQueue {
 							globalDelay.tryDelay(delay.get);
 						}
 						updateProgress(id, QueueItemProgress(QueueItemState.starting));
-						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].generateName ? queue[id].generateName : generateName));
+						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
 						return;
 					}
 					while (id < queue.length) {
@@ -186,7 +189,7 @@ struct RequestQueue {
 							} else {
 								updateProgress(id, QueueItemProgress(QueueItemState.starting));
 								assert(!save || (queue[id].destPath != ""));
-								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].generateName ? queue[id].generateName : generateName));
+								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
 								id++;
 								return;
 							}
@@ -304,6 +307,9 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 					}
 					send(ownerTid, download.id, immutable QueueItemProgress(QueueItemState.downloading, amount, total));
 					lastProgress = amount;
+				}
+				if (download.autoCreateDirs) {
+					mkdirRecurse(download.destPath.dirName);
 				}
 				do {
 					attemptsLeft--;
