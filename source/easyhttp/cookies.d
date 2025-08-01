@@ -1,5 +1,7 @@
 module easyhttp.cookies;
 
+import std.range;
+
 struct Cookie {
 	string domain;
 	string path;
