@@ -214,6 +214,7 @@ struct Request {
 	private QueryParameter[] formPOSTData;
 	private immutable(ubyte)[] rawPOSTData;
 	size_t retries = 10;
+	size_t redirectionDepth = 10;
 	private bool disableDH;
 
 	//private Nullable!string outFile;
@@ -370,7 +371,9 @@ struct Request {
 			} catch (Exception) {}
 		};
 		string tmpURL = url.text;
-		foreach (i; 0 .. retries) {
+		size_t retriesLeft = retries;
+		size_t redirectsLeft = redirectionDepth;
+		while (retriesLeft-- > 0) {
 			requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
 					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
@@ -489,7 +492,12 @@ struct Request {
 					enforce(ignoreSizeMismatch || (response._content.length == length), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, length)));
 				},
 			settings);
-			if (!response.statusCode.among(HTTPStatus.MovedPermanently, HTTPStatus.Found, HTTPStatus.SeeOther, HTTPStatus.TemporaryRedirect)) {
+			if (response.statusCode == HTTPStatus.Found && (redirectsLeft-- > 0)) {
+				retriesLeft++;
+				continue;
+			}
+			redirectsLeft = redirectionDepth;
+			if (!response.statusCode.among(HTTPStatus.MovedPermanently, HTTPStatus.SeeOther, HTTPStatus.TemporaryRedirect)) {
 				break;
 			}
 		}
@@ -584,6 +592,7 @@ struct Request {
 			formPOSTData.idup,
 			rawPOSTData,
 			retries,
+			redirectionDepth,
 			disableDH,
 			expectedMD5,
 			expectedSHA1,
