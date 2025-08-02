@@ -29,17 +29,17 @@ struct DownloadCache {
 		downloader = manager;
 	}
 
-	immutable(ubyte)[] get(const Request req, bool refresh = false) const @safe {
-		return get(req, getFilePath(req.url).toUTF8, refresh);
+	immutable(ubyte)[] get(const Request req, bool refresh = false, bool bypass = false) const @safe {
+		return get(req, getFilePath(req.url).toUTF8, refresh, bypass);
 	}
-	immutable(ubyte)[] get(const Request req, string path, bool refresh = false) const @safe {
+	immutable(ubyte)[] get(const Request req, string path, bool refresh = false, bool bypass = false) const @safe {
 		import std.datetime.systime : SysTime;
 		import std.exception : enforce;
 		enforce(!path.exists || !path.isDir, "Cannot write to directory");
 		if (path.exists) {
 			tracef("%s (%s): found in cache", req.url, path);
-			bool fetch = false;
-			if (refresh) {
+			bool fetch = bypass;
+			if (!fetch && refresh) {
 				const localLastModified = trustedTimeLastModified(path);
 				const remoteLastModified = head(req.url).lastModified;
 				if (!delay.isNull) {
