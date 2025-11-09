@@ -5,6 +5,8 @@ import easyhttp.cache;
 import easyhttp.downloadmanager;
 import easyhttp.http;
 
+import std.algorithm.comparison;
+import std.conv;
 import std.logger;
 
 struct PrettyDownloadManager {
@@ -30,8 +32,6 @@ struct PrettyDownloadManager {
 	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (request, queueDetails, progress) @safe {
-			import std.algorithm.comparison : among;
-			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.id);
 			}
@@ -88,7 +88,6 @@ struct PrettyDownloadManager {
 	import easyhttp.url : URL;
 	import easyhttp.simple : getRequest;
 	import std.file : exists, remove;
-	import std.conv : text;
 	with(PrettyDownloadManager()) {
 		showTotal();
 		foreach (i; 0 .. 100) {
@@ -135,8 +134,6 @@ struct PrettyDownloadCache {
 	void download(bool throwOnError = true) @system {
 		prepareBars();
 		manager.onProgress = (in QueuedRequest request, in QueueDetails queueDetails, in QueueItemProgress progress) @safe {
-			import std.algorithm.comparison : among;
-			import std.conv : text;
 			if (progress.state == QueueItemState.starting) {
 				progressTracker.setItemActive(queueDetails.id);
 			}
@@ -166,7 +163,6 @@ struct PrettyDownloadCache {
 	auto ref onError() @safe => manager.onError;
 	static PrettyDownloadCache systemCache() @safe => PrettyDownloadCache(DownloadCache.systemCache);
 	private void prepareBars() @safe pure {
-		import std.conv : text;
 		if (!loaded) {
 			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
