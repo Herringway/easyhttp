@@ -13,9 +13,9 @@ import std.digest.md;
 import std.digest.sha;
 import std.encoding;
 import std.exception;
-import std.experimental.logger;
 import std.file;
 import std.json;
+import std.logger;
 import std.path;
 import std.random;
 import std.range;
@@ -449,7 +449,6 @@ struct Request {
 								try {
 									md5 = toHexString(Base64.decode(value));
 								} catch (Exception) {
-									import std.experimental.logger : tracef;
 									tracef("Invalid content-md5 string '%s' received, discarding", value);
 									continue;
 								}

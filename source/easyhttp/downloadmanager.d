@@ -5,9 +5,9 @@ import easyhttp.util;
 import std.stdio;
 
 import std.concurrency;
-import std.experimental.logger;
 import std.file;
 import std.functional;
+import std.logger;
 import std.path;
 import std.range;
 import std.typecons;

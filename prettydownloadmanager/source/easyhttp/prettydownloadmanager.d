@@ -5,7 +5,7 @@ import easyhttp.cache;
 import easyhttp.downloadmanager;
 import easyhttp.http;
 
-import std.experimental.logger;
+import std.logger;
 
 struct PrettyDownloadManager {
 	private RequestQueue manager;
