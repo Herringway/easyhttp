@@ -60,18 +60,15 @@ struct PrettyDownloadManager {
 	void postDownloadFunction(typeof(manager.postDownloadFunction) dg) @safe {
 		manager.postDownloadFunction = dg;
 	}
+	void postDownloadCheck(typeof(manager.postDownloadCheck) dg) @safe {
+		manager.postDownloadCheck = dg;
+	}
 	void onError(typeof(manager.onError) dg) @safe {
 		manager.onError = dg;
 	}
-	auto ref delay() @safe {
-		return manager.delay;
-	}
-	auto ref generateName() @safe {
-		return manager.generateName;
-	}
-	auto ref queueCount() @safe {
-		return manager.queueCount;
-	}
+	auto ref delay() @safe => manager.delay;
+	auto ref generateName() @safe => manager.generateName;
+	auto ref queueCount() @safe => manager.queueCount;
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
@@ -125,9 +122,6 @@ struct PrettyDownloadCache {
 		progressTracker.showTotal = true;
 		progressTracker.totalItemsOnly = true;
 	}
-	bool pathAlreadyInQueue(const string path) nothrow @safe {
-		return manager.pathAlreadyInQueue(path);
-	}
 	auto add(Request request) @safe {
 		return manager.queue(request);
 	}
@@ -165,21 +159,12 @@ struct PrettyDownloadCache {
 		progressTracker.clear();
 		loaded = false;
 	}
-	auto ref queueCount() @safe {
-		return manager.queueCount;
-	}
-	auto ref preDownloadFunction() @safe {
-		return manager.preDownloadFunction;
-	}
-	auto ref postDownloadFunction() @safe {
-		return manager.postDownloadFunction;
-	}
-	auto ref onError() @safe {
-		return manager.onError;
-	}
-	static PrettyDownloadCache systemCache() @safe {
-		return PrettyDownloadCache(DownloadCache.systemCache);
-	}
+	bool pathAlreadyInQueue(const string path) nothrow @safe => manager.pathAlreadyInQueue(path);
+	auto ref queueCount() @safe => manager.queueCount;
+	auto ref preDownloadFunction() @safe => manager.preDownloadFunction;
+	auto ref postDownloadFunction() @safe => manager.postDownloadFunction;
+	auto ref onError() @safe => manager.onError;
+	static PrettyDownloadCache systemCache() @safe => PrettyDownloadCache(DownloadCache.systemCache);
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
