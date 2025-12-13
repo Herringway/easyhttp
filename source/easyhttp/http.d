@@ -351,6 +351,7 @@ struct Request {
 		import vibe.stream.operations;
 		import vibe.stream.tls;
 		Response response;
+		bool resumeSupported = true;
 		auto settings = new HTTPClientSettings;
 		if (!certPath.isNull) {
 			enforce(certPath.get.exists, "Certificate path not found");
@@ -419,6 +420,13 @@ struct Request {
 					foreach (header; outHeaders) {
 						req.headers[header.key] = header.value;
 					}
+					if (response._content.length) {
+						if (resumeSupported) {
+							req.headers["Range"] = format!"bytes=%s-"(response._content.length);
+						} else {
+							response._content = [];
+						}
+					}
 					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
 					if (verbose) {
 						foreach (key, value; req.headers.byKeyValue) {
@@ -468,7 +476,6 @@ struct Request {
 							tracef("Received cookie %s %s, %s: %s", cookie.domain, cookie.path, key, cookie.value);
 						}
 					}
-					response._content = [];
 					if (method != HTTPMethod.head) {
 						if (progressUpdate !is null) {
 							auto bodyReader = res.bodyReader;
@@ -491,6 +498,10 @@ struct Request {
 					enforce(ignoreSizeMismatch || (response._content.length == length), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, length)));
 				},
 			settings);
+			// we should just assume resuming isn't supported if a client error is received
+			if ((response.statusCode >= 400) && (response.statusCode < 500)) {
+				resumeSupported = false;
+			}
 			if (response.statusCode == HTTPStatus.Found && (redirectsLeft-- > 0)) {
 				retriesLeft++;
 				continue;
