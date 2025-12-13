@@ -374,7 +374,12 @@ struct Request {
 		string tmpURL = url.text;
 		size_t retriesLeft = retries;
 		size_t redirectsLeft = redirectionDepth;
+		bool resuming;
 		while (retriesLeft-- > 0) {
+			if (resuming) {
+				response._content = [];
+				resuming = false;
+			}
 			try requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
 					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
@@ -423,8 +428,6 @@ struct Request {
 					if (response._content.length) {
 						if (resumeSupported) {
 							req.headers["Range"] = format!"bytes=%s-"(response._content.length);
-						} else {
-							response._content = [];
 						}
 					}
 					req.headers.addField("Cookie", format!"%-(%s; %)"(cookies));
@@ -502,6 +505,7 @@ struct Request {
 				if (retriesLeft == 0) {
 					throw e;
 				}
+				resuming = true;
 				continue;
 			}
 			// we should just assume resuming isn't supported if a client error is received
