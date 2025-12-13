@@ -68,6 +68,7 @@ struct PrettyDownloadManager {
 			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
 				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
+				progressTracker.setItemUnits(id, ProgressUnit.bytes);
 				if (!noColours) {
 					progressTracker.setItemColours(id, RGB(0, 255, 0), RGB(0, 0, 0), ColourMode.unchanging);
 				}
