@@ -64,7 +64,6 @@ struct PrettyDownloadManager {
 	auto ref generateName() => manager.generateName;
 	auto ref queueCount() => manager.queueCount;
 	private void prepareBars() @safe pure {
-		import std.conv : text;
 		if (!loaded) {
 			foreach (id, request; manager.queue) {
 				progressTracker.addNewItem(id);
