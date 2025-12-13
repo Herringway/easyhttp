@@ -375,7 +375,7 @@ struct Request {
 		size_t retriesLeft = retries;
 		size_t redirectsLeft = redirectionDepth;
 		while (retriesLeft-- > 0) {
-			requestHTTP(tmpURL,
+			try requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
 					alias VibeHTTPMethod = vibe.http.common.HTTPMethod;
 					if (verbose) {
@@ -498,6 +498,12 @@ struct Request {
 					enforce(ignoreSizeMismatch || (response._content.length == length), new HTTPException(format!"Content length mismatched (%s vs %s)"(response._content.length, length)));
 				},
 			settings);
+			catch (Exception e) { // underlying stream error
+				if (retriesLeft == 0) {
+					throw e;
+				}
+				continue;
+			}
 			// we should just assume resuming isn't supported if a client error is received
 			if ((response.statusCode >= 400) && (response.statusCode < 500)) {
 				resumeSupported = false;
