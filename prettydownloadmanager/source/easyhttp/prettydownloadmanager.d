@@ -54,21 +54,15 @@ struct PrettyDownloadManager {
 		progressTracker.clear();
 		loaded = false;
 	}
-	void preDownloadFunction(typeof(manager.preDownloadFunction) dg) @safe {
-		manager.preDownloadFunction = dg;
-	}
-	void postDownloadFunction(typeof(manager.postDownloadFunction) dg) @safe {
-		manager.postDownloadFunction = dg;
-	}
-	void postDownloadCheck(typeof(manager.postDownloadCheck) dg) @safe {
-		manager.postDownloadCheck = dg;
-	}
-	void onError(typeof(manager.onError) dg) @safe {
-		manager.onError = dg;
-	}
-	auto ref delay() @safe => manager.delay;
-	auto ref generateName() @safe => manager.generateName;
-	auto ref queueCount() @safe => manager.queueCount;
+	auto ref preDownloadFunction() => manager.preDownloadFunction;
+	auto ref postDownloadFunction() => manager.postDownloadFunction;
+	auto ref postDownloadSkipFunction() => manager.postDownloadSkipFunction;
+	auto ref postDownloadCheck() => manager.postDownloadCheck;
+	auto ref onError() => manager.onError;
+	auto ref minimumUpdateWait() => progressTracker.minimumUpdateWait;
+	auto ref delay() => manager.delay;
+	auto ref generateName() => manager.generateName;
+	auto ref queueCount() => manager.queueCount;
 	private void prepareBars() @safe pure {
 		import std.conv : text;
 		if (!loaded) {
@@ -157,10 +151,10 @@ struct PrettyDownloadCache {
 		loaded = false;
 	}
 	bool pathAlreadyInQueue(const string path) nothrow @safe => manager.pathAlreadyInQueue(path);
-	auto ref queueCount() @safe => manager.queueCount;
-	auto ref preDownloadFunction() @safe => manager.preDownloadFunction;
-	auto ref postDownloadFunction() @safe => manager.postDownloadFunction;
-	auto ref onError() @safe => manager.onError;
+	auto ref queueCount() => manager.queueCount;
+	auto ref preDownloadFunction() => manager.preDownloadFunction;
+	auto ref postDownloadFunction() => manager.postDownloadFunction;
+	auto ref onError() => manager.onError;
 	static PrettyDownloadCache systemCache() @safe => PrettyDownloadCache(DownloadCache.systemCache);
 	private void prepareBars() @safe pure {
 		if (!loaded) {

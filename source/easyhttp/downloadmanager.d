@@ -29,6 +29,7 @@ struct QueuedRequest {
 	string label;
 	bool skipDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
+	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadSkip;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe nothrow onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownload;
@@ -113,6 +114,7 @@ struct RequestQueue {
 	uint queueCount = 4;
 	package const(QueuedRequest)[] queue;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
+	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadSkipFunction;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueError error) @safe nothrow onError;
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
@@ -256,6 +258,13 @@ struct RequestQueue {
 					if (queue[id].postDownload) {
 						queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
 					}
+				}
+			} else if (result == ShouldContinue.no) {
+				if (postDownloadSkipFunction) {
+					postDownloadSkipFunction(queue[id], queueResult, QueueDetails(id, queue.length));
+				}
+				if (queue[id].postDownloadSkip) {
+					queue[id].postDownloadSkip(queue[id], queueResult, QueueDetails(id, queue.length));
 				}
 			}
 			return result;
