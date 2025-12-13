@@ -28,6 +28,7 @@ struct QueuedRequest {
 	FileExistsAction fileExistsAction;
 	string label;
 	bool skipDownload;
+	ulong userData;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadSkip;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
