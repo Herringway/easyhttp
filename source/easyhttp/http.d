@@ -464,7 +464,7 @@ struct Request {
 								}
 								break;
 							case "content-length":
-								length = value.to!size_t;
+								length = response._content.length + value.to!size_t;
 								break;
 							case "location":
 								tmpURL = easyhttp.url.URL(tmpURL).absoluteURL(value).text;
