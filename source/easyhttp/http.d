@@ -376,9 +376,8 @@ struct Request {
 		size_t redirectsLeft = redirectionDepth;
 		bool resuming;
 		while (retriesLeft-- > 0) {
-			if (resuming) {
+			if (!resuming) {
 				response._content = [];
-				resuming = false;
 			}
 			try requestHTTP(tmpURL,
 				(scope HTTPClientRequest req) {
@@ -508,6 +507,7 @@ struct Request {
 				resuming = true;
 				continue;
 			}
+			resuming = false;
 			// we should just assume resuming isn't supported if a client error is received
 			if ((response.statusCode >= 400) && (response.statusCode < 500)) {
 				resumeSupported = false;
