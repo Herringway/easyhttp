@@ -376,6 +376,9 @@ struct Request {
 		size_t redirectsLeft = redirectionDepth;
 		bool resuming;
 		while (retriesLeft-- > 0) {
+			if (verbose) {
+				tracef("fetch URL %s", tmpURL);
+			}
 			if (!resuming) {
 				response._content = [];
 			}
