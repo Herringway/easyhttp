@@ -247,7 +247,8 @@ struct URL {
 		Proto newProto = urlB.protocol.among(Proto.None, Proto.Same) ? protocol : urlB.protocol;
 		immutable newHostname = (urlB.hostname != "") ? urlB.hostname : hostname;
 		immutable newPath = chainURL("/", path, urlB.path).asNormalizedURL.chain(only('/').take((urlB.path.length > 1) && urlB.path.endsWith('/'))).array;
-		return URL(newProto, newHostname, newPath, params).withReplacedParams(urlB.params);
+		// discard the current URL's parameters unconditionally
+		return URL(newProto, newHostname, newPath, URLParameters.init).withReplacedParams(urlB.params);
 	}
 	///ditto
 	URL absoluteURL(string urlB) const pure @safe {
@@ -418,6 +419,7 @@ struct URL {
 	assert(URL("http://url.example/").absoluteURL("/", ["hello": "world"]).text == "http://url.example/?hello=world");
 	assert(URL("http://url.example/somewhere/").absoluteURL("http://url.example/somewhere").text == "http://url.example/somewhere");
 	assert(URL("http://url.example/somewhere").absoluteURL("?param=value").text == "http://url.example/somewhere?param=value");
+	assert(URL("https://url.example/?foo=bar").absoluteURL("https://url.example").text() == "https://url.example/", "Failure to discard params");
 }
 @safe pure unittest {
 	assert(URL("").params == URL.params.init, "URIArguments: Empty string failure");
