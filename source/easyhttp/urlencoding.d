@@ -14,7 +14,7 @@ import std.uri;
 
 struct URLParameters {
 	private QueryParameter[] params;
-	auto opIndex(string key) {
+	auto opIndex(string key) const {
 		return params.filter!(x => x.key == key)().map!(x => x.value);
 	}
 	bool opBinaryRight(string op : "in")(string key) {

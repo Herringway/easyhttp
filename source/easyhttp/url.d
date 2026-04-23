@@ -365,11 +365,11 @@ struct URL {
 	struct Test {
 		string a;
 	}
-	assert(URL("http://url.example/").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
-	assert(URL("http://url.example/").withReplacedParams(["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
-	assert(URL("http://url.example/").withReplacedParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
-	assert(URL("http://url.example/?a=c").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
-	assert(URL("http://url.example/?test").withReplacedParams(["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
+	assert((const URL)("http://url.example/").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
+	assert((const URL)("http://url.example/").withReplacedParams(["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
+	assert((const URL)("http://url.example/").withReplacedParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
+	assert((const URL)("http://url.example/?a=c").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
+	assert((const URL)("http://url.example/?test").withReplacedParams(["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");
