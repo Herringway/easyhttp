@@ -210,9 +210,7 @@ struct URL {
 	 +/
 	URL withNewParams(T)(T inParams) const if (isURLEncodable!T) {
 		auto url = URL(protocol, hostname, path, inParams);
-		foreach (k; params.keys.sort) {
-			url.params ~= QueryParameter(k, params[k]);
-		}
+		url.params ~= params;
 		return url;
 	}
 	/++
@@ -370,6 +368,16 @@ struct URL {
 	assert((const URL)("http://url.example/").withReplacedParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
 	assert((const URL)("http://url.example/?a=c").withReplacedParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param override failure");
 	assert((const URL)("http://url.example/?test").withReplacedParams(["test2": ["value"]]).params == ["test":[""], "test2":["value"]], "Merged parameters failure");
+}
+@safe pure unittest {
+	struct Test {
+		string a;
+	}
+	assert((const URL)("http://url.example/").withNewParams(["a":"b"]).text() == "http://url.example/?a=b", "Simple complete URL + assoc param failure");
+	assert((const URL)("http://url.example/").withNewParams(["a":["b"]]).text() == "http://url.example/?a=b", "Simple complete URL + assoc arr param failure");
+	assert((const URL)("http://url.example/").withNewParams(Test("b")).text() == "http://url.example/?a=b", "Simple complete URL + struct param failure");
+	assert((const URL)("http://url.example/?a=c").withNewParams(["a":"b"]).params == ["a": ["b", "c"]], "Simple complete URL + assoc param dupe failure");
+	assert((const URL)("http://url.example/?test").withNewParams(["test": ["value"]]).params == ["test": ["", "value"]], "Dupe parameters failure");
 }
 @safe pure unittest {
 	assert(URL("http://url.example").protocol == URL.Proto.HTTP, "HTTP detection failure");

@@ -38,6 +38,12 @@ struct URLParameters {
 	void opOpAssign(string op : "~")(const QueryParameter param) {
 		params ~= param;
 	}
+	void opOpAssign(string op : "~")(const QueryParameter[] params) {
+		this.params ~= params;
+	}
+	void opOpAssign(string op : "~")(const URLParameters params) {
+		this.params ~= params.params;
+	}
 	void opIndexOpAssign(string op : "~")(const string val, const string key) {
 		params ~= QueryParameter(key, val);
 	}
