@@ -11,11 +11,21 @@ import std.logger;
 
 struct PrettyDownloadManager {
 	private RequestQueue manager;
-	private ProgressTracker progressTracker;
+	private ProgressTracker* progressTracker;
+	private ProgressItem* progressRoot;
 	private bool loaded;
 	bool noColours;
 
+	this(ProgressTracker* tracker) @safe pure {
+		progressTracker = tracker;
+		progressRoot = &progressTracker.root;
+	}
+	this(ProgressTracker* tracker, ProgressItem* root) @safe pure {
+		progressTracker = tracker;
+		progressRoot = root;
+	}
 	void showTotal() nothrow @safe pure {
+		assert(progressTracker);
 		progressTracker.showTotal = true;
 		progressTracker.totalItemsOnly = true;
 	}
@@ -27,27 +37,28 @@ struct PrettyDownloadManager {
 	}
 	void download(bool throwOnError = true) @system {
 		prepareBars();
+		progressRoot.setActive();
 		manager.onProgress = (request, queueDetails, progress) @safe {
+			ref progressItem = progressRoot.matching(queueDetails.id);
 			if (progress.state == QueueItemState.starting) {
-				progressTracker.setItemActive(queueDetails.id);
+				progressItem.state = ProgressItemState.active;
 			}
-			progressTracker.setItemMaximum(queueDetails.id, progress.size);
-			progressTracker.setItemProgress(queueDetails.id, progress.downloaded);
+			progressItem.maximum = progress.size;
+			progressItem.current = progress.downloaded;
+			progressItem.status = progress.text;
 			if (progress.state == QueueItemState.error) {
-				progressTracker.setItemStatus(queueDetails.id, text(progress.state, " - ", progress.error.msg));
 				if (!noColours) {
-					progressTracker.setItemColours(queueDetails.id, RGB(255, 0, 0), RGB(0, 0, 0), ColourMode.unchanging);
+					progressItem.from = RGB(255, 0, 0);
+					progressItem.colourMode = ColourMode.unchanging;
 				}
-			} else {
-				progressTracker.setItemStatus(queueDetails.id, progress.state.text);
 			}
 			if (progress.state.among(QueueItemState.complete, QueueItemState.error)) {
-				progressTracker.completeItem(queueDetails.id);
+				progressItem.state = ProgressItemState.complete;
 			}
 			progressTracker.updateDisplay();
 		};
 		manager.download(throwOnError);
-		progressTracker.clear();
+		progressTracker.updateDisplay();
 		loaded = false;
 	}
 	auto ref preDownloadFunction() => manager.preDownloadFunction;
@@ -59,16 +70,27 @@ struct PrettyDownloadManager {
 	auto ref generateName() => manager.generateName;
 	auto ref queueCount() => manager.queueCount;
 	auto rateLimitDomain(string domains, RequestDelay delay) => manager.rateLimitDomain(domains, delay);
-	static PrettyDownloadManager systemCache() @safe => PrettyDownloadManager(RequestQueue.systemCache);
+	static PrettyDownloadManager systemCache(ProgressTracker* tracker) @safe {
+		auto result = PrettyDownloadManager(tracker);
+		result.manager = RequestQueue.systemCache;
+		return result;
+	}
+	static PrettyDownloadManager systemCache(ProgressTracker* tracker, ProgressItem* root) @safe {
+		auto result = PrettyDownloadManager(tracker, root);
+		result.manager = RequestQueue.systemCache;
+		return result;
+	}
 	private void prepareBars() @safe pure {
+		assert(progressTracker && progressRoot);
 		if (!loaded) {
 			foreach (id, request; manager.queue) {
-				progressTracker.addNewItem(id);
-				progressTracker.setItemName(id, request.label ? request.label : request.request.url.text);
-				progressTracker.setItemUnits(id, ProgressUnit.bytes);
-				if (!noColours) {
-					progressTracker.setItemColours(id, RGB(0, 255, 0), RGB(0, 0, 0), ColourMode.unchanging);
-				}
+				progressRoot.addNewItem(ProgressItem(
+					name: request.label ? request.label : request.request.url.text,
+					unit: ProgressUnit.bytes,
+					id: id,
+					from: RGB(0, 255, 0),
+					colourMode: noColours ? ColourMode.none : ColourMode.unchanging,
+				));
 			}
 			loaded = true;
 		}
@@ -79,7 +101,7 @@ struct PrettyDownloadManager {
 	import easyhttp.url : URL;
 	import easyhttp.simple : getRequest;
 	import std.file : exists, remove;
-	with(PrettyDownloadManager()) {
+	with(PrettyDownloadManager(new ProgressTracker)) {
 		showTotal();
 		foreach (i; 0 .. 100) {
 			auto dlReq = QueuedRequest();

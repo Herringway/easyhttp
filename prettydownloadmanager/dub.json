@@ -5,6 +5,6 @@
 	"authors": ["Cameron \"Herringway\" Ross"],
 	"dependencies": {
 		"easyhttp": "*",
-		"progresso": "~>0.0"
+		"progresso": "~>0.1"
 	}
 }
