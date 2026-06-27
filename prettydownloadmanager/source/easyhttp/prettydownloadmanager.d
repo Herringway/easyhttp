@@ -60,7 +60,6 @@ struct PrettyDownloadManager {
 	auto ref postDownloadCheck() => manager.postDownloadCheck;
 	auto ref onError() => manager.onError;
 	auto ref minimumUpdateWait() => progressTracker.minimumUpdateWait;
-	auto ref delay() => manager.delay;
 	auto ref generateName() => manager.generateName;
 	auto ref queueCount() => manager.queueCount;
 	private void prepareBars() @safe pure {

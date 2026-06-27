@@ -5,6 +5,7 @@ import easyhttp.util;
 import std.stdio;
 
 import std.concurrency;
+import std.exception;
 import std.file;
 import std.functional;
 import std.logger;
@@ -29,6 +30,7 @@ struct QueuedRequest {
 	string label;
 	bool skipDownload;
 	ulong userData;
+	Nullable!RequestDelay delay;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownload;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadSkip;
 	ShouldContinue delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadCheck;
@@ -121,7 +123,6 @@ struct RequestQueue {
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
-	Nullable!RequestDelay delay;
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		import std.algorithm.iteration : map;
 		import std.algorithm.searching : canFind;
@@ -174,30 +175,37 @@ struct RequestQueue {
 						const id = retryQueueIDs[0];
 						retryQueueIDs = retryQueueIDs[1 .. $];
 						// skip checks, they were done on the first try
-						if (!delay.isNull) {
-							globalDelay.tryDelay(delay.get);
+						if (!queue[id].delay.isNull) {
+							globalDelay.tryDelay(queue[id].delay.get);
 						}
 						updateProgress(id, QueueItemProgress(QueueItemState.starting));
 						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
 						return;
 					}
 					while (id < queue.length) {
-						if (preDownload(id) == ShouldContinue.yes) {
-							if (queue[id].skipDownload) {
-								updateProgress(id, QueueItemProgress(QueueItemState.starting));
-								QueueResult qResult;
-								qResult.path = queue[id].destPath;
-								postDownload(id, qResult);
-								updateProgress(id, QueueItemProgress(QueueItemState.complete, 0, 0));
+						try {
+							if (preDownload(id) == ShouldContinue.yes) {
+								if (queue[id].skipDownload) {
+									updateProgress(id, QueueItemProgress(QueueItemState.starting));
+									QueueResult qResult;
+									qResult.path = queue[id].destPath;
+									postDownload(id, qResult);
+									updateProgress(id, QueueItemProgress(QueueItemState.complete, 0, 0));
+								} else {
+									updateProgress(id, QueueItemProgress(QueueItemState.starting));
+									assert(!save || (queue[id].destPath != ""));
+									send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
+									id++;
+									return;
+								}
 							} else {
-								updateProgress(id, QueueItemProgress(QueueItemState.starting));
-								assert(!save || (queue[id].destPath != ""));
-								send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
-								id++;
-								return;
+								updateProgress(id, QueueItemProgress(QueueItemState.skipping));
 							}
-						} else {
-							updateProgress(id, QueueItemProgress(QueueItemState.skipping));
+						} catch (Exception e) {
+							auto progress = QueueItemProgress(QueueItemState.error);
+							progress.error = QueueError(id, e.msg);
+							errorOccurred(progress.error);
+							updateProgress(id, progress);
 						}
 						id++;
 					}
@@ -205,16 +213,26 @@ struct RequestQueue {
 					send(child, true);
 				},
 				(immutable size_t successID, immutable QueueResult result, Tid child) nothrow {
-					const shouldContinue = postDownload(successID, result);
-					if (shouldContinue == ShouldContinue.yes) {
-						updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
-					} else if (shouldContinue == ShouldContinue.retry) {
-						retryQueueIDs ~= successID;
-						updateProgress(successID, QueueItemProgress(QueueItemState.error));
-					} else if (shouldContinue == ShouldContinue.no) {
-						updateProgress(successID, QueueItemProgress(QueueItemState.complete));
-					} else {
-						updateProgress(successID, QueueItemProgress(QueueItemState.error));
+					try {
+						const shouldContinue = postDownload(successID, result);
+						if (shouldContinue == ShouldContinue.yes) {
+							updateProgress(successID, QueueItemProgress(QueueItemState.complete, result.response.content!(immutable(ubyte)[]).length, result.response.content!(immutable(ubyte)[]).length));
+						} else if (shouldContinue == ShouldContinue.retry) {
+							retryQueueIDs ~= successID;
+							updateProgress(successID, QueueItemProgress(QueueItemState.error));
+						} else if (shouldContinue == ShouldContinue.no) {
+							updateProgress(successID, QueueItemProgress(QueueItemState.complete));
+						}
+					} catch (Exception e) {
+						auto progress = QueueItemProgress(QueueItemState.error);
+						progress.error = QueueError(successID, e.msg);
+						errorOccurred(progress.error);
+						updateProgress(successID, progress);
+						if (save && result.path.exists) {
+							try {
+								remove(result.path);
+							} catch (Exception) {} // we tried
+						}
 					}
 				},
 				(immutable size_t id, immutable QueueItemProgress progress) nothrow {
@@ -242,52 +260,44 @@ struct RequestQueue {
 			errorOccurred(QueueError(id, e.msg));
 		}
 	}
-	private ShouldContinue postDownload(in ulong id, in QueueResult queueResult) const @safe nothrow {
+	private ShouldContinue postDownload(in ulong id, in QueueResult queueResult) const @safe {
 		ShouldContinue result = ShouldContinue.yes;
-		try {
-			if (postDownloadCheck) {
-				result = postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
+		if (postDownloadCheck) {
+			result = postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
+		}
+		if (result == ShouldContinue.yes) {
+			if(queue[id].postDownloadCheck) {
+				result = queue[id].postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
 			}
 			if (result == ShouldContinue.yes) {
-				if(queue[id].postDownloadCheck) {
-					result = queue[id].postDownloadCheck(queue[id], queueResult, QueueDetails(id, queue.length));
+				if (postDownloadFunction) {
+					postDownloadFunction(queue[id], queueResult, QueueDetails(id, queue.length));
 				}
-				if (result == ShouldContinue.yes) {
-					if (postDownloadFunction) {
-						postDownloadFunction(queue[id], queueResult, QueueDetails(id, queue.length));
-					}
-					if (queue[id].postDownload) {
-						queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
-					}
-				}
-			} else if (result == ShouldContinue.no) {
-				if (postDownloadSkipFunction) {
-					postDownloadSkipFunction(queue[id], queueResult, QueueDetails(id, queue.length));
-				}
-				if (queue[id].postDownloadSkip) {
-					queue[id].postDownloadSkip(queue[id], queueResult, QueueDetails(id, queue.length));
+				if (queue[id].postDownload) {
+					queue[id].postDownload(queue[id], queueResult, QueueDetails(id, queue.length));
 				}
 			}
-			return result;
-		} catch (Exception e) {
-			errorOccurred(QueueError(id, e.msg));
-			return ShouldContinue.error;
+		} else if (result == ShouldContinue.no) {
+			if (postDownloadSkipFunction) {
+				postDownloadSkipFunction(queue[id], queueResult, QueueDetails(id, queue.length));
+			}
+			if (queue[id].postDownloadSkip) {
+				queue[id].postDownloadSkip(queue[id], queueResult, QueueDetails(id, queue.length));
+			}
 		}
+		enforce(result != ShouldContinue.error, "Post-download check indicated failure");
+		return result;
 	}
-	private ShouldContinue preDownload(in ulong id) const @safe nothrow {
+	private ShouldContinue preDownload(in ulong id) const @safe {
 		ShouldContinue result = ShouldContinue.yes;
-		try {
-			if (preDownloadFunction) {
-				result = preDownloadFunction(queue[id], QueueDetails(id, queue.length));
-			}
-			if ((result == ShouldContinue.yes) && queue[id].preDownload) {
-				result = queue[id].preDownload(queue[id], QueueDetails(id, queue.length));
-			}
-			return result;
-		} catch (Exception e) {
-			errorOccurred(QueueError(id, e.msg));
-			return ShouldContinue.error;
+		if (preDownloadFunction) {
+			result = preDownloadFunction(queue[id], QueueDetails(id, queue.length));
 		}
+		if ((result == ShouldContinue.yes) && queue[id].preDownload) {
+			result = queue[id].preDownload(queue[id], QueueDetails(id, queue.length));
+		}
+		enforce(result != ShouldContinue.error, "Pre-download check indicated failure");
+		return result;
 	}
 	private void errorOccurred(in QueueError error) const @safe nothrow {
 		if (onError) {
