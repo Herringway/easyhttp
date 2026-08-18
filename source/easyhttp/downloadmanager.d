@@ -1,16 +1,21 @@
 module easyhttp.downloadmanager;
 
 import easyhttp.http;
+import easyhttp.url;
 import easyhttp.util;
 import std.stdio;
 
+import core.thread;
+import std.algorithm.comparison;
 import std.concurrency;
+import std.datetime;
 import std.exception;
 import std.file;
 import std.functional;
 import std.logger;
 import std.path;
 import std.range;
+import std.random;
 import std.typecons;
 import std.variant;
 
@@ -113,6 +118,15 @@ struct QueueItemProgress {
 	}
 }
 
+struct RequestDelayEntry {
+	RequestDelay definition;
+	string mask;
+}
+struct RequestDelayState {
+	Nullable!RequestDelay definition;
+	DelayState state;
+}
+
 struct RequestQueue {
 	uint queueCount = 4;
 	package const(QueuedRequest)[] queue;
@@ -123,6 +137,9 @@ struct RequestQueue {
 	ShouldContinue delegate(in QueuedRequest request, in QueueDetails qd) @safe preDownloadFunction;
 	void delegate(in QueuedRequest request, in QueueDetails qd, in QueueItemProgress progress) @safe onProgress;
 	string delegate(in string basePath, in string receivedFilename) @safe pure generateName;
+	private RequestDelayEntry[] urlDelays;
+	private RequestDelayState[string] domainDelays;
+	private DelayState globalDelay;
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
 		import std.algorithm.iteration : map;
 		import std.algorithm.searching : canFind;
@@ -157,6 +174,41 @@ struct RequestQueue {
 	void perform(bool throwOnError = true) @system {
 		process(false, throwOnError);
 	}
+	/++
+		Add rate limiting for all hostnames matching the given string
+	+/
+	void rateLimitDomain(string hostnames, RequestDelay delay) @safe {
+		urlDelays ~= RequestDelayEntry(delay, hostnames);
+	}
+	///
+	package void handleDelay(const Nullable!RequestDelay qd, const URL url, size_t queueID = size_t.max) @safe {
+		Duration delay;
+		if (!qd.isNull) {
+			delay = globalDelay.tryDelay(qd.get, Clock.currTime, rndGen);
+		}
+		ref entry = domainDelays.require(url.hostname, {
+			RequestDelayState result;
+			foreach (entry; urlDelays) {
+				if (matchHostname(entry.mask, url.hostname)) {
+					result.definition = entry.definition;
+					break;
+				}
+			}
+			return result;
+		}());
+		if (!entry.definition.isNull) {
+			delay = max(delay, entry.state.tryDelay(entry.definition.get, Clock.currTime, rndGen));
+		}
+		static void trustedSleep(Duration duration) @trusted {
+			Thread.sleep(duration);
+		}
+		if (delay > 0.seconds) {
+			if (queueID != queueID.max) {
+				updateProgress(queueID, QueueItemProgress(QueueItemState.waiting));
+			}
+			trustedSleep(delay);
+		}
+	}
 	private void process(bool save, bool throwOnError) @system {
 		import std.range : empty, front, popFront;
 		auto downloaders = new Tid[](queueCount);
@@ -175,9 +227,7 @@ struct RequestQueue {
 						const id = retryQueueIDs[0];
 						retryQueueIDs = retryQueueIDs[1 .. $];
 						// skip checks, they were done on the first try
-						if (!queue[id].delay.isNull) {
-							globalDelay.tryDelay(queue[id].delay.get);
-						}
+						handleDelay(queue[id].delay, queue[id].request.url, id);
 						updateProgress(id, QueueItemProgress(QueueItemState.starting));
 						send(child, immutable QueueItem(id, queue[id].request.finalized, queue[id].destPath, queue[id].fileExistsAction, queue[id].retries, queue[id].autoCreateDirs, queue[id].generateName ? queue[id].generateName : generateName));
 						return;
@@ -530,4 +580,17 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 			}
 		}
 	}
+}
+
+private bool matchHostname(string wildcard, string hostname) @safe pure {
+	return globMatch(hostname, wildcard);
+}
+
+@safe pure unittest {
+	assert(matchHostname("*", ""));
+	assert(matchHostname("*", "example.com"));
+	assert(!matchHostname("example.net", "example.com"));
+	assert(!matchHostname("*.example.com", "example.com"));
+	assert(matchHostname("*.example.com", "subdomain.example.com"));
+	assert(!matchHostname("*.example.net", "subdomain.example.com"));
 }

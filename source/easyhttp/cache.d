@@ -29,10 +29,10 @@ struct DownloadCache {
 		downloader = manager;
 	}
 
-	immutable(ubyte)[] get(const Request req, bool refresh = false, bool bypass = false) const @safe {
+	immutable(ubyte)[] get(const Request req, bool refresh = false, bool bypass = false) @safe {
 		return get(req, getFilePath(req.url).toUTF8, refresh, bypass);
 	}
-	immutable(ubyte)[] get(const Request req, string path, bool refresh = false, bool bypass = false) const @safe {
+	immutable(ubyte)[] get(const Request req, string path, bool refresh = false, bool bypass = false) @safe {
 		import std.datetime.systime : SysTime;
 		import std.exception : enforce;
 		enforce(!path.exists || !path.isDir, "Cannot write to directory");
@@ -42,9 +42,7 @@ struct DownloadCache {
 			if (!fetch && refresh) {
 				const localLastModified = trustedTimeLastModified(path);
 				const remoteLastModified = head(req.url).lastModified;
-				if (!delay.isNull) {
-					globalDelay.tryDelay(delay.get);
-				}
+				downloader.handleDelay(delay, req.url);
 				if (remoteLastModified > localLastModified) {
 					fetch = true;
 					tracef("Remote has been modified since last fetch, refreshing (%s > %s)", remoteLastModified, localLastModified);
@@ -63,9 +61,7 @@ struct DownloadCache {
 		uint retriesLeft = retries;
 		do {
 			retriesLeft--;
-			if (!delay.isNull) {
-				globalDelay.tryDelay(delay.get);
-			}
+			downloader.handleDelay(delay, req.url);
 			try {
 				auto resp = req.perform();
 				enforce(resp.statusCode.isSuccessful, new StatusException(resp.statusCode, req.url));
@@ -161,6 +157,9 @@ struct DownloadCache {
 			fixed = setExtension(fixed, "raw");
 		}
 		return fixed;
+	}
+	auto rateLimitDomain(string domains, RequestDelay delay) @safe {
+		return downloader.rateLimitDomain(domains, delay);
 	}
 	static auto systemCache() @safe {
 		return DownloadCache(settings.systemCachePath);

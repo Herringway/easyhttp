@@ -8,4 +8,5 @@ public {
 	import easyhttp.urlencoding;
 	import easyhttp.simple;
 	import easyhttp.http;
+	import easyhttp.util;
 }

@@ -4,6 +4,7 @@ import progresso;
 import easyhttp.cache;
 import easyhttp.downloadmanager;
 import easyhttp.http;
+import easyhttp.util;
 
 import std.algorithm.comparison;
 import std.conv;
@@ -62,6 +63,7 @@ struct PrettyDownloadManager {
 	auto ref minimumUpdateWait() => progressTracker.minimumUpdateWait;
 	auto ref generateName() => manager.generateName;
 	auto ref queueCount() => manager.queueCount;
+	auto rateLimitDomain(string domains, RequestDelay delay) => manager.rateLimitDomain(domains, delay);
 	private void prepareBars() @safe pure {
 		if (!loaded) {
 			foreach (id, request; manager.queue) {
@@ -155,6 +157,7 @@ struct PrettyDownloadCache {
 	auto ref postDownloadFunction() => manager.postDownloadFunction;
 	auto ref onError() => manager.onError;
 	static PrettyDownloadCache systemCache() @safe => PrettyDownloadCache(DownloadCache.systemCache);
+	auto rateLimitDomain(string domains, RequestDelay delay) => manager.rateLimitDomain(domains, delay);
 	private void prepareBars() @safe pure {
 		if (!loaded) {
 			foreach (id, request; manager.queue) {

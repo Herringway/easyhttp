@@ -17,19 +17,9 @@ struct RequestDelay {
 	double range = 0.0;
 	int limitCount;
 }
-DelayState globalDelay;
 struct DelayState {
 	Nullable!SysTime next;
 	SysTime[] recentRequests;
-	void tryDelay(const RequestDelay delay) @safe {
-		static void trustedSleep(Duration duration) @trusted {
-			Thread.sleep(duration);
-		}
-		const duration = tryDelay(delay, Clock.currTime, rndGen);
-		if (duration > 0.msecs) {
-			trustedSleep(duration);
-		}
-	}
 	Duration tryDelay(const RequestDelay delay, const SysTime now, Random rng) @safe pure {
 		if (next.get(SysTime.min) > now) {
 			recentRequests ~= next.get();
