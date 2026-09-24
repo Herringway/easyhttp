@@ -4,6 +4,7 @@ import core.time;
 
 import std.algorithm;
 import std.array;
+import std.ascii;
 import std.base64;
 import std.conv;
 import std.datetime;
@@ -31,6 +32,7 @@ import easyhttp.cookies;
 import easyhttp.fs;
 import easyhttp.url;
 import easyhttp.urlencoding;
+import easyhttp.util;
 
 enum packageName = "easyhttp";
 enum packageVersion = "v0.0.0";
@@ -142,9 +144,10 @@ enum HTTPStatus : ushort {
 	NetworkAuthenticationRequired = 511
 }
 
-bool isSuccessful(HTTPStatus status) @safe pure {
-	return (status >= HTTPStatus.OK) && (status < HTTPStatus.MultipleChoices);
-}
+// 2XX considered successful
+bool isSuccessful(HTTPStatus status) @safe pure => (status >= HTTPStatus.OK) && (status < HTTPStatus.MultipleChoices);
+// can retry anything but 4XX (can retry 429 with a delay)
+bool isRetryable(HTTPStatus status) @safe pure => (status == HTTPStatus.TooManyRequests) || ((status < HTTPStatus.BadRequest) && (status >= HTTPStatus.InternalServerError));
 
 enum OAuthMethod { header, queryString, form }
 
@@ -561,7 +564,7 @@ struct Request {
 	SavedFileInformation saveTo(string fullPath, FileExistsAction fileExistsAction = FileExistsAction.rename, bool throwOnError = true, void delegate(size_t, size_t) progressUpdate = null, string delegate(string, string) @safe pure generateName = null) const @safe {
 		SavedFileInformation output;
 		auto response = perform(progressUpdate);
-		enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, url));
+		enforce(!throwOnError || response.statusCode.isSuccessful, new StatusException(response.statusCode, response.retryAfter, url));
 		output.response = response;
 		if (generateName !is null) {
 			fullPath = generateName(fullPath, response.overriddenFilename);
@@ -705,6 +708,19 @@ struct Response {
 		}
 		return parseLastModified(lastModifiedHeader.front.value);
 	}
+	Nullable!SysTime retryAfter() @safe const {
+		auto retryAfterHeader = matchingHeaders("Retry-After");
+		if (retryAfterHeader.empty) {
+			return typeof(return).init;
+		}
+		const str = retryAfterHeader.front.value;
+		enforce(str.length > 0, "Invalid Retry-After header");
+		if (str[0].isDigit) {
+			return (Clock.currTime + str.to!uint.seconds).nullable;
+		} else {
+			return SysTime(httpDate(str), UTC()).nullable;
+		}
+	}
 }
 /++
  + A parsed content-disposition string
@@ -739,6 +755,8 @@ auto parseDispositionString(string str) @safe {
 class StatusException : HTTPException {
 	///The HTTP status code that was seen
 	public HTTPStatus code;
+	///Time to wait before retrying, if applicable
+	public Nullable!SysTime retryAfter;
 	/++
 	 + Constructor that takes an HTTP status code.
 	 +
@@ -749,6 +767,11 @@ class StatusException : HTTPException {
 	 +/
 	this(HTTPStatus errorCode, const URL url, string file = __FILE__, size_t line = __LINE__) @safe {
 		code = errorCode;
+		super(format("Error %d (%s) fetching URL %s", errorCode, errorCode, url), file, line);
+	}
+	this(HTTPStatus errorCode, Nullable!SysTime retryAfter, const URL url, string file = __FILE__, size_t line = __LINE__) @safe {
+		code = errorCode;
+		this.retryAfter = retryAfter;
 		super(format("Error %d (%s) fetching URL %s", errorCode, errorCode, url), file, line);
 	}
 }

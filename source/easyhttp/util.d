@@ -2,7 +2,11 @@ module easyhttp.util;
 
 import core.thread : Thread;
 import core.time;
+import std.algorithm.iteration;
+import std.algorithm.searching;
+import std.conv;
 import std.datetime;
+import std.exception;
 import std.random;
 import std.typecons : Nullable;
 
@@ -56,4 +60,28 @@ struct DelayState {
 		assert(state.tryDelay(delay, now+100.msecs, rng) == 100.msecs);
 		assert(state.tryDelay(delay, now+300.msecs, rng) == 0.msecs);
 	}
+}
+
+DateTime httpDate(const(char)[] str) @safe pure {
+	static immutable months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	auto splitStr = str.splitter(" ");
+	splitStr.popFront(); // skip the day of the week
+	int day = splitStr.front.to!int;
+	splitStr.popFront(); // now at month
+	int month = cast(int)months.countUntil(splitStr.front) + 1;
+	splitStr.popFront(); // now at year
+	int year = splitStr.front.to!int;
+	splitStr.popFront(); // now at timestamp
+	auto splitTime = splitStr.front.splitter(":");
+	int hour = splitTime.front.to!int;
+	splitTime.popFront(); // timestamp now at minute
+	int minute = splitTime.front.to!int;
+	splitTime.popFront(); // timestamp now at second
+	int second = splitTime.front.to!int;
+	splitStr.popFront(); // now at timezone (always GMT)
+	enforce(splitStr.front == "GMT", "Invalid Date header");
+	return DateTime(year, month, day, hour, minute, second);
+}
+@safe pure unittest {
+	assert(httpDate("Wed, 21 Oct 2015 07:28:00 GMT") == DateTime(2015, 10, 21, 7, 28, 0));
 }

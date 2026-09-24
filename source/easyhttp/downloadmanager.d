@@ -371,6 +371,11 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 				import std.exception : enforce;
 				size_t attemptsLeft = max(1, download.retries);
 				size_t lastProgress;
+				Duration expBackoffDuration = 1.seconds;
+				Duration generateWait() {
+					scope(exit) expBackoffDuration *= 2;
+					return expBackoffDuration;
+				}
 				void updateProgress(size_t amount, size_t total) {
 					if (amount == lastProgress) {
 						return;
@@ -393,10 +398,16 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 							send(ownerTid, download.id, immutable QueueResult(response, "", false, download.retries - attemptsLeft), thisTid);
 						}
 						break;
-					} catch (Exception e) {
+					} catch (StatusException e) {
 						debug(verbosehttp) tracef("Error downloading: %s", e);
-						if (attemptsLeft == 0) {
+						// 4xx errors should not be retried
+						if (!e.code.isRetryable || (attemptsLeft == 0)) {
 							send(ownerTid, QueueError(download.id, e.msg));
+						}
+						// sleep if we're sending too many requests
+						if (e.code == HTTPStatus.TooManyRequests) {
+							const wait = e.retryAfter.isNull ? generateWait() : (e.retryAfter.get - Clock.currTime);
+							Thread.sleep(wait);
 						}
 					} catch (Throwable e) {
 						debug(verbosehttp) tracef("Error downloading: %s", e);
