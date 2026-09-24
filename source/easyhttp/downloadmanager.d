@@ -1,13 +1,20 @@
 module easyhttp.downloadmanager;
 
+import easyhttp.config;
+import easyhttp.fs;
 import easyhttp.http;
+import easyhttp.simple;
 import easyhttp.url;
 import easyhttp.util;
 import std.stdio;
 
 import core.thread;
 import std.algorithm.comparison;
+import std.algorithm.iteration;
+import std.algorithm.searching;
+import std.algorithm.sorting;
 import std.concurrency;
+import std.conv;
 import std.datetime;
 import std.exception;
 import std.file;
@@ -17,6 +24,7 @@ import std.path;
 import std.range;
 import std.random;
 import std.typecons;
+import std.utf;
 import std.variant;
 
 enum ShouldContinue {
@@ -128,6 +136,9 @@ struct RequestDelayState {
 }
 
 struct RequestQueue {
+	string basePath;
+	uint retries;
+	Nullable!RequestDelay delay;
 	uint queueCount = 4;
 	package const(QueuedRequest)[] queue;
 	void delegate(in QueuedRequest request, in QueueResult result, in QueueDetails qd) @safe postDownloadFunction;
@@ -141,23 +152,27 @@ struct RequestQueue {
 	private RequestDelayState[string] domainDelays;
 	private DelayState globalDelay;
 	bool pathAlreadyInQueue(const string path) nothrow @safe {
-		import std.algorithm.iteration : map;
-		import std.algorithm.searching : canFind;
 		return queue.map!(x => x.destPath).canFind(path);
 	}
-	size_t add(const QueuedRequest request) nothrow @safe
+	void add(QueuedRequest request) @safe
 		in((request.destPath == "") || request.destPath.isValidPath, "Invalid path: '"~request.destPath~"'")
 	{
+		if (!request.destPath.length) {
+			request.destPath = getFilePath(request.request.url).toUTF8;
+		}
+		if (request.destPath.exists) {
+			if (request.postDownload is null) {
+				return;
+			}
+			request.skipDownload = true;
+		}
 		queue ~= request;
-		return queue.length - 1;
 	}
 	/++
 		Cleans up the download queue for more efficient downloading. Sorts queued items
 		by URL, removes duplicates.
 	+/
 	void prepare() @safe pure {
-		import std.algorithm.iteration : map, uniq;
-		import std.algorithm.sorting : sort;
 		auto indices = iota(0, queue.length).array;
 		indices.sort!((x,y) => queue[x].destPath < queue[y].destPath)();
 		queue = indices.uniq!((x,y) => queue[x] == queue[y]).map!(x => queue[x]).array;
@@ -173,6 +188,81 @@ struct RequestQueue {
 	+/
 	void perform(bool throwOnError = true) @system {
 		process(false, throwOnError);
+	}
+	/++
+		Immediately execute an HTTP request
+	+/
+	immutable(ubyte)[] get(const Request req, bool refresh = false, bool checkLastModified = false) @safe {
+		return get(req, getFilePath(req.url).toUTF8, refresh, checkLastModified);
+	}
+	/// ditto
+	immutable(ubyte)[] get(const Request req, string path, bool refresh = false, bool checkLastModified = false) @safe {
+		enforce(!path.exists || !path.isDir, "Cannot write to directory");
+		if (path.exists) {
+			tracef("%s (%s): found in cache", req.url, path);
+			bool fetch = checkLastModified;
+			if (!fetch && refresh) {
+				const localLastModified = trustedTimeLastModified(path);
+				const remoteLastModified = head(req.url).lastModified;
+				handleDelay(delay, req.url);
+				if (remoteLastModified > localLastModified) {
+					fetch = true;
+					tracef("Remote has been modified since last fetch, refreshing (%s > %s)", remoteLastModified, localLastModified);
+				} else if (remoteLastModified == SysTime.min) {
+					fetch = true;
+					trace("Remote has no modified header. Refreshing anyway.");
+				} else {
+					tracef("Remote has not been modified since last fetch, not refreshing (%s <= %s)", remoteLastModified, localLastModified);
+				}
+			}
+			if (!fetch) {
+				return trustedRead(path);
+			}
+		}
+		tracef("%s (%s): fetching", req.url, path);
+		uint retriesLeft = retries;
+		do {
+			retriesLeft--;
+			handleDelay(delay, req.url);
+			try {
+				auto resp = req.perform();
+				enforce(resp.statusCode.isSuccessful, new StatusException(resp.statusCode, req.url));
+				auto data = resp.content!(immutable(ubyte)[]);
+				mkdirRecurse(path.dirName);
+				std.file.write(path, data);
+				return data;
+			} catch(Exception e) {
+				if (retriesLeft <= 0) {
+					throw e;
+				} else {
+					tracef("%s (%s): retrying (%s)", req.url, path, e.msg);
+				}
+			}
+		} while (retriesLeft > 0);
+		assert(0);
+	}
+	/++
+		Invalidate a cached request
+	+/
+	void invalidate(const QueuedRequest req) const @safe {
+		if (!req.destPath.exists) {
+			return;
+		}
+		remove(req.destPath);
+	}
+	/// ditto
+	void invalidate(Request req) const @safe {
+		invalidate(toQueuedRequest(req));
+	}
+	static RequestQueue systemCache() @safe => RequestQueue(settings.systemCachePath);
+
+	private QueuedRequest toQueuedRequest(Request req) const @safe {
+		string dest = getFilePath(req.url).toUTF8;
+		QueuedRequest download;
+		download.request = req;
+		download.fileExistsAction = FileExistsAction.skip;
+		download.destPath = dest;
+		return download;
 	}
 	/++
 		Add rate limiting for all hostnames matching the given string
@@ -209,8 +299,36 @@ struct RequestQueue {
 			trustedSleep(delay);
 		}
 	}
+	private auto getFilePath(const URL url) const @safe {
+		return getRelativePath(basePath, url);
+	}
+	static private auto getRelativePath(string base, const URL url) @safe {
+		const params = url.paramString;
+		string path = url.path;
+		skipOver(path, "/");
+		while (path.endsWith("/")) {
+			path = path[0 .. $ - 1];
+		}
+		string urlPath = (path == "" ? "index" : path);
+		if ((urlPath.extension == ".") || (urlPath.extension == "")) {
+			urlPath = setExtension(urlPath, "html");
+		}
+		if(params.length != 0) {
+			urlPath ~= text("?", params);
+		}
+		version(Windows) {
+			if (urlPath[$ - 1] == '.') {
+				urlPath = urlPath[0 .. $ - 1] ~ "．";
+			}
+		}
+		skipOver(urlPath, "/");
+		auto fixed = fixPath(buildNormalizedPath(base, url.hostname, urlPath), InvalidCharHandling.replaceUnicode).text;
+		if (fixed.exists && fixed.isDir) {
+			fixed = setExtension(fixed, "raw");
+		}
+		return fixed;
+	}
 	private void process(bool save, bool throwOnError) @system {
-		import std.range : empty, front, popFront;
 		auto downloaders = new Tid[](queueCount);
 		foreach (idx, ref downloader; downloaders) {
 			downloader = spawn(&downloadRoutine, save, throwOnError);
@@ -367,8 +485,6 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 				finished = true;
 			},
 			(immutable QueueItem download) {
-				import std.algorithm.comparison : max;
-				import std.exception : enforce;
 				size_t attemptsLeft = max(1, download.retries);
 				size_t lastProgress;
 				Duration expBackoffDuration = 1.seconds;
@@ -425,9 +541,7 @@ private void downloadRoutine(bool save, bool throwOnError) @system {
 	}
 }
 @system unittest {
-	import easyhttp.url : URL;
 	import easyhttp.simple : getRequest, postRequest;
-	import std.file : exists, remove;
 	import std.format : format;
 	with(RequestQueue()) {
 		bool pre1, pre2, post1, post2;
@@ -604,4 +718,60 @@ private bool matchHostname(string wildcard, string hostname) @safe pure {
 	assert(!matchHostname("*.example.com", "example.com"));
 	assert(matchHostname("*.example.com", "subdomain.example.com"));
 	assert(!matchHostname("*.example.net", "subdomain.example.com"));
+}
+@safe unittest {
+	with (RequestQueue("tmp")) {
+		assert(getFilePath(URL("http://example.com")).equal(buildNormalizedPath("tmp/example.com/index.html").asAbsolutePath));
+		assert(getFilePath(URL(`http:\\example.com\somefile`)).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
+		assert(getFilePath(URL("http://example.com/somefile")).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
+		assert(getFilePath(URL("http://example.com/somefile.")).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
+		assert(getFilePath(URL("http://example.com/somefile.jpg")).equal(buildNormalizedPath("tmp/example.com/somefile.jpg").asAbsolutePath));
+		assert(getFilePath(URL("http://example.com/some\0file.jpg")).equal(buildNormalizedPath("tmp/example.com/some␀file.jpg").asAbsolutePath));
+		version(Windows) {
+			assert(getFilePath(URL("http://example.com/index.php?hello=world")).equal(buildNormalizedPath("tmp/example.com/index.php？hello=world").asAbsolutePath));
+			assert(getFilePath(URL("http://example.com/somefile?hello=world")).equal(buildNormalizedPath("tmp/example.com/somefile.html？hello=world").asAbsolutePath));
+			assert(getFilePath(URL("http://example.com/somefile?hello=world.")).equal(buildNormalizedPath("tmp/example.com/somefile.html？hello=world．").asAbsolutePath));
+		} else {
+			assert(getFilePath(URL("http://example.com/index.php?hello=world")).equal(buildNormalizedPath("tmp/example.com/index.php?hello=world").asAbsolutePath));
+			assert(getFilePath(URL("http://example.com/somefile?hello=world")).equal(buildNormalizedPath("tmp/example.com/somefile.html?hello=world").asAbsolutePath));
+			assert(getFilePath(URL("http://example.com/somefile?hello=world.")).equal(buildNormalizedPath("tmp/example.com/somefile.html?hello=world.").asAbsolutePath));
+		}
+	}
+}
+
+@safe unittest {
+	assert(RequestQueue.getRelativePath("tmp", URL("http://example.com")).equal(buildNormalizedPath("tmp/example.com/index.html").asAbsolutePath));
+	assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/somefile")).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
+	assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/somefile.jpg")).equal(buildNormalizedPath("tmp/example.com/somefile.jpg").asAbsolutePath));
+	assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/some\0file.jpg")).equal(buildNormalizedPath("tmp/example.com/some␀file.jpg").asAbsolutePath));
+	version(Windows) {
+		assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/index.php?hello=world")).equal(buildNormalizedPath("tmp/example.com/index.php？hello=world").asAbsolutePath));
+		assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/somefile?hello=world")).equal(buildNormalizedPath("tmp/example.com/somefile.html？hello=world").asAbsolutePath));
+	} else {
+		assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/index.php?hello=world")).equal(buildNormalizedPath("tmp/example.com/index.php?hello=world").asAbsolutePath));
+		assert(RequestQueue.getRelativePath("tmp", URL("http://example.com/somefile?hello=world")).equal(buildNormalizedPath("tmp/example.com/somefile.html?hello=world").asAbsolutePath));
+	}
+	{
+		auto url = URL("http://example.com");
+		url.path = "/somefile.jpg";
+		assert(RequestQueue.getRelativePath("tmp", url).equal(buildNormalizedPath("tmp/example.com/somefile.jpg").asAbsolutePath));
+	}
+	{
+		auto url = URL("http://example.com");
+		url.path = "/";
+		assert(RequestQueue.getRelativePath("tmp", url).equal(buildNormalizedPath("tmp/example.com/index.html").asAbsolutePath));
+	}
+	{
+		auto url = URL("http://example.com");
+		url.path = "/somefile/";
+		assert(RequestQueue.getRelativePath("tmp", url).equal(buildNormalizedPath("tmp/example.com/somefile.html").asAbsolutePath));
+	}
+}
+
+@safe unittest {
+	import easyhttp.simple : getRequest;
+	with(RequestQueue("tmp")) {
+		get(getRequest(URL("https://misc.herringway.pw/whack.gif")));
+		get(getRequest(URL("https://misc.herringway.pw/whack.gif")), true);
+	}
 }
