@@ -16,11 +16,10 @@ struct PrettyDownloadManager {
 	private bool loaded;
 	bool noColours;
 
-	this(ProgressTracker* tracker) @safe pure {
-		progressTracker = tracker;
-		progressRoot = &progressTracker.root;
-	}
-	this(ProgressTracker* tracker, ProgressItem* root) @safe pure {
+	this(ProgressTracker* tracker) @safe pure => this(tracker, &tracker.root);
+	this(ProgressTracker* tracker, ProgressItem* root) @safe pure => this("", tracker, root);
+	this(string basePath, ProgressTracker* tracker, ProgressItem* root) @safe pure {
+		manager.basePath = basePath;
 		progressTracker = tracker;
 		progressRoot = root;
 	}
@@ -69,6 +68,8 @@ struct PrettyDownloadManager {
 	auto ref minimumUpdateWait() => progressTracker.minimumUpdateWait;
 	auto ref generateName() => manager.generateName;
 	auto ref queueCount() => manager.queueCount;
+	void invalidate(const QueuedRequest req) const @safe { manager.invalidate(req); }
+	void invalidate(Request req) const @safe { manager.invalidate(req); }
 	auto rateLimitDomain(string domains, RequestDelay delay) => manager.rateLimitDomain(domains, delay);
 	static PrettyDownloadManager systemCache(ProgressTracker* tracker) @safe {
 		auto result = PrettyDownloadManager(tracker);
