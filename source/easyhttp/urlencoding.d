@@ -17,7 +17,7 @@ struct URLParameters {
 	auto opIndex(string key) const {
 		return params.filter!(x => x.key == key)().map!(x => x.value);
 	}
-	bool opBinaryRight(string op : "in")(string key) {
+	bool opBinaryRight(string op : "in")(string key) const {
 		return params.map!(x => x.key).canFind(key);
 	}
 	auto opIndexAssign(void[], string key) {
