@@ -60,6 +60,8 @@ struct PrettyDownloadManager {
 		progressTracker.updateDisplay();
 		loaded = false;
 	}
+	immutable(ubyte)[] get(const Request req, bool refresh = false, bool checkLastModified = false) @safe => manager.get(req, refresh, checkLastModified);
+	immutable(ubyte)[] get(const Request req, string path, bool refresh = false, bool checkLastModified = false) @safe => manager.get(req, path, refresh, checkLastModified);
 	auto ref preDownloadFunction() => manager.preDownloadFunction;
 	auto ref postDownloadFunction() => manager.postDownloadFunction;
 	auto ref postDownloadSkipFunction() => manager.postDownloadSkipFunction;
