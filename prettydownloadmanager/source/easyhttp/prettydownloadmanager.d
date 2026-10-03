@@ -69,6 +69,8 @@ struct PrettyDownloadManager {
 	auto ref onError() => manager.onError;
 	auto ref minimumUpdateWait() => progressTracker.minimumUpdateWait;
 	auto ref generateName() => manager.generateName;
+	auto ref retries() => manager.retries;
+	auto ref delay() => manager.delay;
 	auto ref queueCount() => manager.queueCount;
 	void invalidate(const QueuedRequest req) const @safe { manager.invalidate(req); }
 	void invalidate(Request req) const @safe { manager.invalidate(req); }
