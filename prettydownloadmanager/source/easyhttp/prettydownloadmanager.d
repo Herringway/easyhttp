@@ -51,7 +51,7 @@ struct PrettyDownloadManager {
 					progressItem.colourMode = ColourMode.unchanging;
 				}
 			}
-			if (progress.state.among(QueueItemState.complete, QueueItemState.error)) {
+			if (progress.state.among(QueueItemState.complete, QueueItemState.skipping, QueueItemState.error)) {
 				progressItem.state = ProgressItemState.complete;
 			}
 			progressTracker.updateDisplay();

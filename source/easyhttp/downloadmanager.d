@@ -358,7 +358,7 @@ struct RequestQueue {
 									QueueResult qResult;
 									qResult.path = queue[id].destPath;
 									postDownload(id, qResult);
-									updateProgress(id, QueueItemProgress(QueueItemState.complete, 0, 0));
+									updateProgress(id, QueueItemProgress(QueueItemState.skipping, 0, 0));
 								} else {
 									updateProgress(id, QueueItemProgress(QueueItemState.starting));
 									assert(!save || (queue[id].destPath != ""));
@@ -367,7 +367,7 @@ struct RequestQueue {
 									return;
 								}
 							} else {
-								updateProgress(id, QueueItemProgress(QueueItemState.skipping));
+								updateProgress(id, QueueItemProgress(QueueItemState.skipping, 0, 0));
 							}
 						} catch (Exception e) {
 							auto progress = QueueItemProgress(QueueItemState.error);
