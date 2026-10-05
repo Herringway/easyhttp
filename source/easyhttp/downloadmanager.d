@@ -222,7 +222,9 @@ struct RequestQueue {
 		tracef("%s (%s): fetching", req.url, path);
 		uint retriesLeft = retries;
 		do {
-			retriesLeft--;
+			if (retriesLeft > 0) {
+				retriesLeft--;
+			}
 			handleDelay(delay, req.url);
 			try {
 				auto resp = req.perform();
