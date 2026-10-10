@@ -226,20 +226,19 @@ struct RequestQueue {
 				retriesLeft--;
 			}
 			handleDelay(delay, req.url);
-			try {
-				auto resp = req.perform();
-				enforce(resp.statusCode.isSuccessful, new StatusException(resp.statusCode, req.url));
-				auto data = resp.content!(immutable(ubyte)[]);
-				mkdirRecurse(path.dirName);
-				std.file.write(path, data);
-				return data;
-			} catch(Exception e) {
-				if (retriesLeft <= 0) {
-					throw e;
-				} else {
-					tracef("%s (%s): retrying (%s)", req.url, path, e.msg);
+			auto resp = req.perform();
+			if (!resp.statusCode.isSuccessful) {
+				// 4xx errors should not be retried
+				if ((!resp.statusCode.isRetryable) || (retriesLeft == 0)) {
+					throw new StatusException(resp.statusCode, req.url);
 				}
+				tracef("%s (%s): retrying (%s)", req.url, path, resp.statusCode);
+				continue;
 			}
+			auto data = resp.content!(immutable(ubyte)[]);
+			mkdirRecurse(path.dirName);
+			std.file.write(path, data);
+			return data;
 		} while (retriesLeft > 0);
 		assert(0);
 	}
