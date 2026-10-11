@@ -220,6 +220,12 @@ struct RequestQueue {
 			}
 		}
 		tracef("%s (%s): fetching", req.url, path);
+		auto data = getUncached(req);
+		mkdirRecurse(path.dirName);
+		std.file.write(path, data);
+		return data;
+	}
+	immutable(ubyte)[] getUncached(const Request req) @safe {
 		uint retriesLeft = retries;
 		do {
 			if (retriesLeft > 0) {
@@ -232,13 +238,10 @@ struct RequestQueue {
 				if ((!resp.statusCode.isRetryable) || (retriesLeft == 0)) {
 					throw new StatusException(resp.statusCode, req.url);
 				}
-				tracef("%s (%s): retrying (%s)", req.url, path, resp.statusCode);
+				tracef("%s: retrying (%s)", req.url, resp.statusCode);
 				continue;
 			}
-			auto data = resp.content!(immutable(ubyte)[]);
-			mkdirRecurse(path.dirName);
-			std.file.write(path, data);
-			return data;
+			return resp.content!(immutable(ubyte)[]);
 		} while (retriesLeft > 0);
 		assert(0);
 	}
